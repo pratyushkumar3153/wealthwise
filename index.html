@@ -558,7 +558,7 @@
         </div>
         <p id="dsSubtitle" class="text-xs mb-3" style="color: var(--muted);"></p>
         <div id="dsByUser" class="overflow-x-auto"></div>
-        <p class="text-[11px] mt-2" style="color: var(--muted);">Investment, Contribution, Income and Expense are totalled from each user's entries in the chosen period. Balance = Income − Expense (investments and contributions are shown separately, not added into Balance). Leave "From" empty for all-time. Click a user to see their details.</p>
+        <p class="text-[11px] mt-2" style="color: var(--muted);">Investment, Contribution, Income and Expense are totalled from each user's entries in the chosen period. Balance = Income − Expense − Contribution (investments shown separately, not in Balance). Leave "From" empty for all-time. Click a user to see their details.</p>
       </div>
       <div class="glass mb-6 p-6 lg:p-8 relative overflow-hidden">
         <div class="absolute top-0 right-0 w-72 h-72 opacity-10" style="background: radial-gradient(circle, var(--gold), transparent 70%);"></div>
@@ -2501,7 +2501,7 @@ function _dsRow(key, from, to) {
   (DB.data.transactions || []).forEach(t => { if (_dsKey(_dsOwnerRaw(t)) !== key) return; if (!inRange(t.date)) return; if (t.type === 'income') inc += (+t.amount || 0); else if (t.type === 'expense') exp += (+t.amount || 0); });
   (DB.data.investments || []).forEach(x => { if (_dsKey(_dsOwnerRaw(x)) !== key) return; if (!inRange(x.startDate)) return; invv += (+x.invested || 0); });
   (DB.data.contributions || []).forEach(x => { if (_dsKey(_dsOwnerRaw(x)) !== key) return; if (!inRange(x.date)) return; con += (+x.amount || 0); });
-  return { inv: invv, con, inc, exp, bal: inc - exp };
+  return { inv: invv, con, inc, exp, bal: inc - exp - con };
 }
 function renderDashSummary() {
   if (!AUTH.current) return;
@@ -4878,6 +4878,18 @@ const Backend = {
         const rows = await res.json();
         DB.data[t] = Array.isArray(rows) ? rows.map(coerceRow) : [];
       }
+      // Shared user accounts (so a user created on one device can log in on another).
+      // Cloud is source of truth; if cloud is empty, seed it from local (don't wipe the admin).
+      try {
+        const ures = await fetch(this.sbUrl('users', 'select=*'), { headers: this.sbHeaders() });
+        await chkRes(ures);
+        const urows = await ures.json();
+        if (Array.isArray(urows) && urows.length) {
+          DB.data.users = urows.map(coerceRow);
+        } else {
+          for (const u of (DB.data.users || [])) { try { await this.sbWrite('insert', 'users', u); } catch (e) { /* ignore */ } }
+        }
+      } catch (e) { /* users table may not exist yet — ignore so the rest still loads */ }
     } else {
       const c = DB.data.settings.cloud || {};
       if (!c.webAppUrl) throw new Error('No Apps Script web app URL set');
@@ -5048,8 +5060,8 @@ const AUTH = {
   },
   hasUsers() { return DB.data.users.length > 0; },
   findByUsername(u) {
-    const k = (u || '').trim();
-    return DB.data.users.find(x => (x.username || '').trim() === k);
+    const k = (u || '').trim().toLowerCase();
+    return DB.data.users.find(x => (x.username || '').trim().toLowerCase() === k);
   },
   login(username, pin) {
     const u = this.findByUsername(username);
@@ -5069,6 +5081,7 @@ const AUTH = {
     if (!ROLE_PERMS[role]) role = 'Viewer';
     const u = { id: DB.uid(), name, username, pin: this._hash(pin), role, createdAt: new Date().toISOString() };
     DB.data.users.push(u); DB.save();
+    if (typeof Backend !== 'undefined' && Backend.active()) Backend.push('insert', 'users', u);
     return { ok: true, user: u };
   },
   updateUser(id, patch) {
@@ -5091,6 +5104,7 @@ const AUTH = {
     if (patch.role && !ROLE_PERMS[patch.role]) delete patch.role;
     if (patch.name !== undefined) patch.name = patch.name.trim();
     Object.assign(u, patch); DB.save();
+    if (typeof Backend !== 'undefined' && Backend.active()) Backend.push('update', 'users', { id: u.id, row: u });
     if (this.current && this.current.id === id) this.current = u;
     return { ok: true };
   },
@@ -5100,6 +5114,7 @@ const AUTH = {
     if (this.current && this.current.id === id) return { ok: false, msg: 'You cannot delete the account you are signed in as' };
     if (u.role === 'Admin' && DB.data.users.filter(x => x.role === 'Admin').length <= 1) return { ok: false, msg: 'Cannot delete the last Admin' };
     DB.data.users = DB.data.users.filter(x => x.id !== id); DB.save();
+    if (typeof Backend !== 'undefined' && Backend.active()) Backend.push('delete', 'users', { id });
     return { ok: true };
   },
   can(perm) { return !!(this.current && ROLE_PERMS[this.current.role] && ROLE_PERMS[this.current.role][perm]); }
