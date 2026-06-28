@@ -1413,6 +1413,7 @@ end $$;</pre>
 
             <div class="flex flex-wrap gap-2 pt-1">
               <button id="btnSaveBackend" onclick="saveBackendConfig()" class="btn-primary">Save &amp; Connect</button>
+              <button id="btnTestBackend" onclick="backendDiagnose()" class="btn-ghost">&#129514; Test connection</button>
               <button id="btnLoadBackend" onclick="backendLoad()" class="btn-ghost">&#8595; Load from DB</button>
               <button id="btnUploadBackend" onclick="backendPushAll()" class="btn-ghost">&#8593; Upload local data</button>
             </div>
@@ -4640,8 +4641,16 @@ const Backend = {
     try { p = (m === 'supabase') ? this.sbWrite(op, table, payload) : this.sheetWrite(op, table, payload); }
     catch (e) { p = Promise.reject(e); }
     Promise.resolve(p)
-      .then(() => syncStatus('Saved to ' + (m === 'supabase' ? 'Supabase' : 'Google Sheet') + ' ✓', 'ok'))
-      .catch(err => { console.error('Sync failed:', err); syncStatus('Sync failed (' + op + ' ' + table + ') — see console', 'error'); });
+      .then(() => syncStatus('Saved to ' + (m === 'supabase' ? 'Supabase' : 'Google Sheet') + ' ✓ · ' + (this.sb().url || ''), 'ok'))
+      .catch(err => {
+        console.error('Sync failed:', err);
+        syncStatus('NOT saved to database (' + op + ' ' + table + ') — ' + (err.message || 'error'), 'error');
+        const now = Date.now();
+        if (now - (window._syncErrAt || 0) > 4000) {
+          window._syncErrAt = now;
+          showToast('⚠️ Saved on this device but NOT to the database — connection error. Open Database / Sync → Test connection.', 'error');
+        }
+      });
   },
   sbWrite(op, table, payload) {
     if (op === 'insert') return fetch(this.sbUrl(table), { method: 'POST', headers: this.sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify([payload]) }).then(chkRes);
@@ -4744,6 +4753,31 @@ function manualRefresh() {
   } else {
     refreshAll(); showToast('Refreshed');
   }
+}
+async function backendDiagnose() {
+  if (!requirePerm('importData')) return;
+  if (!Backend.active()) { showToast('Choose Supabase and Save & Connect first', 'error'); return; }
+  const url = Backend.sb().url || '(no URL set)';
+  syncStatus('Testing connection to ' + url + ' …');
+  // 1) READ
+  try { await Backend.test(); }
+  catch (e) {
+    syncStatus('READ failed — ' + url + ' · ' + (e.message || ''), 'error');
+    showToast('❌ Read failed. The URL and key must be from the SAME project, and the schema must be run. (' + (e.message || '') + ')', 'error');
+    return;
+  }
+  // 2) WRITE + cleanup
+  const testId = '__conntest__' + Date.now();
+  try {
+    await Backend.sbWrite('insert', 'transactions', { id: testId, type: 'income', amount: 0, category: '__connection_test__', description: 'connection test (auto-deleted)', date: new Date().toISOString().slice(0, 10), createdBy: 'system', createdByUser: 'system' });
+  } catch (e) {
+    syncStatus('WRITE failed — ' + url + ' · ' + (e.message || ''), 'error');
+    showToast('❌ Read OK, but WRITE failed. Check the table policies / schema. (' + (e.message || '') + ')', 'error');
+    return;
+  }
+  try { await Backend.sbWrite('delete', 'transactions', { id: testId }); } catch (e) { /* leave it; harmless */ }
+  syncStatus('Connection healthy ✓ · read & write OK · ' + url, 'ok');
+  showToast('✅ Connection healthy — read & write both work on ' + url, 'success');
 }
 async function backendPushAll() {
   if (!requirePerm('importData')) return;
