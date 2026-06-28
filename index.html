@@ -2016,6 +2016,14 @@ const safeStorage = (() => {
   };
 })();
 
+// Canonical shared database connection, baked into the app. Bump `version`
+// whenever the URL/key changes so every device auto-adopts the new one on load.
+const SB_CONFIG = {
+  url: 'https://pjojniffvkkpmjxvwbxi.supabase.co',
+  anonKey: 'sb_publishable_2DKKkd6AU5slh6NL92e8tQ_CO5QVFqB',
+  version: 2
+};
+
 const DB = {
   K: 'wealthwise_db_v3',
   data: null,
@@ -2043,6 +2051,13 @@ const DB = {
     if (!this.data.settings.supabase || typeof this.data.settings.supabase !== 'object') {
       this.data.settings.supabase = { url: '', anonKey: '' };
     }
+    // Auto-adopt the canonical shared connection whenever the baked version changes.
+    // This repairs devices that still hold an old or mismatched URL/key.
+    if (this.data.settings.sbConfigVersion !== SB_CONFIG.version) {
+      this.data.settings.backend = 'supabase';
+      this.data.settings.supabase = { url: SB_CONFIG.url, anonKey: SB_CONFIG.anonKey };
+      this.data.settings.sbConfigVersion = SB_CONFIG.version;
+    }
     this.save();
   },
   save() { safeStorage.setItem(this.K, JSON.stringify(this.data)); },
@@ -2054,7 +2069,8 @@ const DB = {
       settings: {
         currency: '₹', name: 'Friend',
         backend: 'supabase',
-        supabase: { url: 'https://ptdznlfelaenzpjbwjfo.supabase.co', anonKey: 'sb_publishable_ybt9nhUXMhiOoTbVnG-J1w_GhKYQXMW' },
+        supabase: { url: SB_CONFIG.url, anonKey: SB_CONFIG.anonKey },
+        sbConfigVersion: SB_CONFIG.version,
         cloud: { webAppUrl: '', sheetId: '', autoPush: false }
       },
       users: [
