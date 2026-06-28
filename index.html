@@ -469,7 +469,7 @@
     </div>
     <div class="sidebar-link" data-section="messages">
       <span class="nav-ico">💬</span>
-      <span class="nav-label">Messages</span>
+      <span class="nav-label">Conversations</span>
       <span id="chatNavBadge" class="badge badge-expense" style="display:none;font-size:10px;"></span><button class="pin-btn" onclick="togglePin(event,'messages')" title="Pin to top">📌</button>
     </div>
     <div class="sidebar-link" data-section="sync" data-perm="importData">
@@ -1185,6 +1185,14 @@
     <section id="messages" class="section">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4" style="min-height: 60vh;">
         <div class="glass p-4 md:col-span-1">
+          <div class="mb-3 pb-3" style="border-bottom:1px solid var(--border);">
+            <label class="label" style="font-size:10px;">📞 Start a call</label>
+            <select id="callUserSelect" class="input" style="padding:8px 10px; margin:4px 0 8px;"></select>
+            <div class="flex gap-2">
+              <button onclick="startCallFromSelect('audio')" class="btn-ghost" style="flex:1; padding:8px; font-size:13px;">🎤 Audio</button>
+              <button onclick="startCallFromSelect('video')" class="btn-ghost" style="flex:1; padding:8px; font-size:13px;">🎥 Video</button>
+            </div>
+          </div>
           <h3 class="font-display text-base font-bold mb-3">Conversations</h3>
           <div id="chatPeers"></div>
         </div>
@@ -1502,6 +1510,7 @@ end $$;</pre>
                 <th class="pb-3 font-medium">Name</th>
                 <th class="pb-3 font-medium">Username</th>
                 <th class="pb-3 font-medium">Role</th>
+                <th class="pb-3 font-medium">Password</th>
                 <th class="pb-3 font-medium">Added</th>
                 <th class="pb-3 font-medium text-right">Actions</th>
               </tr>
@@ -2212,7 +2221,7 @@ const titles = {
   lending: ['Lent & Borrowed', 'Money you will get back & money you must pay'],
   comparison: ['Comparison & Trends', 'User-wise periods, history and A vs B'],
   vault: ['Secure Vault', 'IDs, passwords, bank & contact details'],
-  messages: ['Messages', 'Chat with your admin']
+  messages: ['Conversations', 'Chat, share files, and start audio/video calls']
 };
 const navigate = (section) => {
   if (section === 'users' && !AUTH.can('manageUsers')) { section = 'dashboard'; }
@@ -3749,6 +3758,16 @@ renderers.messages = () => {
       <span class="block text-xs" style="color:var(--muted);">@${u}</span></button>`;
   }).join('') : '<p class="text-sm" style="color:var(--muted);">No other users to chat with yet. Add people in <strong>Users &amp; Roles</strong> (each needs their own login), then you can message them here.</p>';
 
+  // Populate the "Start a call" dropdown with every other user
+  const callSel = document.getElementById('callUserSelect');
+  if (callSel) {
+    const prev = callSel.value;
+    callSel.innerHTML = list.length
+      ? list.map(u => `<option value="${u}">${names[u]} (@${u})</option>`).join('')
+      : '<option value="">No other users yet</option>';
+    if (prev && names[prev]) callSel.value = prev;
+  }
+
   const peer = _chatPeer;
   const thread = msgs.filter(m => peer && ((m.fromUser === me && m.toUser === peer) || (m.fromUser === peer && m.toUser === me)));
   let changed = false;
@@ -3771,7 +3790,7 @@ renderers.messages = () => {
       return `<div class="flex ${mineMsg ? 'justify-end' : 'justify-start'} mb-2">
         <div class="max-w-[78%] p-3 rounded-2xl" style="background:${mineMsg ? 'linear-gradient(135deg, var(--gold-deep), var(--gold-bright))' : 'rgba(255,255,255,0.05)'}; color:${mineMsg ? '#1a1206' : 'var(--fg)'};">
           ${att}
-          ${m.text ? `<p class="text-sm" style="white-space:pre-wrap;">${(m.text || '').replace(/</g,'&lt;')}</p>` : ''}
+          ${m.text ? `<p class="text-sm" style="white-space:pre-wrap;word-break:break-word;">${_chatLinkify(m.text)}</p>` : ''}
           <div class="flex items-center gap-2 mt-1" style="opacity:.7;">
             <span style="font-size:10px;">${m.fromName || m.fromUser}${m.fromRole==='Admin'?' · admin':''} · ${m.ts ? new Date(m.ts).toLocaleString('en',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : ''}</span>
             ${canDel ? `<button onclick="deleteMessage('${m.id}')" style="font-size:10px;text-decoration:underline;cursor:pointer;background:none;border:none;color:inherit;">delete</button>` : ''}
@@ -3786,7 +3805,11 @@ renderers.messages = () => {
   if (hdr) {
     const title = peer ? ('Chat with @' + peer) : 'Select a conversation';
     const showDel = thread.length && peer;
-    hdr.innerHTML = `<span class="font-semibold">${title}</span>${showDel ? `<button onclick="deleteConversation()" class="btn-danger" style="padding:6px 12px;font-size:12px;">🗑 Delete conversation</button>` : ''}`;
+    const callBtns = peer ? `
+      <button onclick="startCall('audio')" class="btn-ghost" style="padding:6px 12px;font-size:12px;" title="Start an audio call with @${peer}">🎤 Audio call</button>
+      <button onclick="startCall('video')" class="btn-ghost" style="padding:6px 12px;font-size:12px;" title="Start a video call with @${peer}">🎥 Video call</button>` : '';
+    hdr.innerHTML = `<span class="font-semibold">${title}</span>
+      <span class="flex items-center gap-2 flex-wrap">${callBtns}${showDel ? `<button onclick="deleteConversation()" class="btn-danger" style="padding:6px 12px;font-size:12px;">🗑 Delete</button>` : ''}</span>`;
   }
   const bar = document.getElementById('chatEmojiBar');
   if (bar && !bar.dataset.filled) {
@@ -3794,6 +3817,34 @@ renderers.messages = () => {
     bar.dataset.filled = '1';
   }
 };
+function _chatLinkify(t) {
+  const esc = (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return esc.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;font-weight:600;">$1</a>');
+}
+function startCall(kind, peerArg) {
+  if (!AUTH.current) return;
+  const peer = peerArg || _chatPeer;
+  if (!peer) { showToast('Pick someone to call first', 'error'); return; }
+  const me = AUTH.current.username.toLowerCase();
+  // Unique, hard-to-guess room shared via the chat message below.
+  const room = 'WealthWise-' + [me, peer].sort().join('-') + '-' + Math.random().toString(36).slice(2, 9);
+  const base = 'https://meet.jit.si/' + encodeURIComponent(room);
+  const url = base + '#config.prejoinPageEnabled=false' + (kind === 'audio' ? '&config.startWithVideoMuted=true' : '');
+  const label = kind === 'video' ? '🎥 Video call' : '🎤 Audio call';
+  const msg = { fromUser: me, fromName: AUTH.current.name, fromRole: AUTH.current.role, toUser: peer, text: `${label} started by ${AUTH.current.name}. Tap to join: ${url}`, ts: new Date().toISOString(), read: false };
+  DB.add('messages', msg);
+  renderers.messages();
+  const win = window.open(url, '_blank');
+  if (!win) showToast('Allow pop-ups, then tap the call link in the chat to join', 'info');
+  else showToast(`${label} started — the link was sent to @${peer} in the chat`, 'success');
+}
+function startCallFromSelect(kind) {
+  const sel = document.getElementById('callUserSelect');
+  const peer = sel && sel.value;
+  if (!peer) { showToast('Select a user to call first', 'error'); return; }
+  _chatPeer = peer;           // also open their conversation so the call link lands there
+  startCall(kind, peer);
+}
 function deleteConversation() {
   if (!AUTH.current) return;
   const me = AUTH.current.username.toLowerCase();
@@ -5079,7 +5130,7 @@ const AUTH = {
     if (DB.data.users.some(u => (u.username || '').trim().toLowerCase() === unameLc || (u.name || '').trim().toLowerCase() === nameLc))
       return { ok: false, msg: 'A user with that name or username already exists' };
     if (!ROLE_PERMS[role]) role = 'Viewer';
-    const u = { id: DB.uid(), name, username, pin: this._hash(pin), role, createdAt: new Date().toISOString() };
+    const u = { id: DB.uid(), name, username, pin: this._hash(pin), pw: String(pin), role, createdAt: new Date().toISOString() };
     DB.data.users.push(u); DB.save();
     if (typeof Backend !== 'undefined' && Backend.active()) Backend.push('insert', 'users', u);
     return { ok: true, user: u };
@@ -5099,6 +5150,7 @@ const AUTH = {
     }
     if (patch.pin !== undefined && patch.pin !== '') {
       if (String(patch.pin).length < 4) return { ok: false, msg: 'PIN / password must be at least 4 characters' };
+      patch.pw = String(patch.pin);
       patch.pin = this._hash(patch.pin);
     } else { delete patch.pin; }
     if (patch.role && !ROLE_PERMS[patch.role]) delete patch.role;
@@ -5283,6 +5335,11 @@ renderers.users = () => {
         <td class="font-medium">${u.name}${isSelf ? ' <span class="badge badge-income">you</span>' : ''}</td>
         <td style="color: var(--muted);">@${u.username}</td>
         <td><span class="badge ${roleBadge}">${u.role}</span></td>
+        <td style="color: var(--muted);">
+          ${u.pw ? `<span id="pw_${u.id}" data-pw="${String(u.pw).replace(/"/g, '&quot;')}" data-shown="0" style="font-family:monospace;">••••••</span>
+            <button onclick="togglePw('${u.id}')" class="btn-ghost" style="padding:2px 8px;font-size:11px;margin-left:4px;" title="Show / hide password">👁</button>`
+            : '<span class="text-xs" style="color:var(--muted);">— (reset to capture)</span>'}
+        </td>
         <td style="color: var(--muted);">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('en', { day:'numeric', month:'short', year:'numeric' }) : '—'}</td>
         <td class="text-right whitespace-nowrap">
           <button onclick="editUser('${u.id}')" class="btn-ghost" style="padding:6px 12px;font-size:12px;margin-right:5px;">Edit</button>
@@ -5296,6 +5353,13 @@ renderers.users = () => {
       <p class="text-xs" style="color: var(--muted);">${ROLE_DESC[r]}</p>
     </div>`).join('');
 };
+function togglePw(id) {
+  if (!AUTH.can('manageUsers')) return;
+  const el = document.getElementById('pw_' + id); if (!el) return;
+  const shown = el.dataset.shown === '1';
+  el.textContent = shown ? '••••••' : (el.dataset.pw || '');
+  el.dataset.shown = shown ? '0' : '1';
+}
 function openAddUser() {
   if (!requirePerm('manageUsers')) return;
   document.getElementById('userId').value = '';
