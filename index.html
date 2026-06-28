@@ -534,6 +534,32 @@
         </div>
         <span class="text-xs px-3 py-1.5 rounded-full" style="background: rgba(255,255,255,0.04); border:1px solid var(--border); color: var(--muted);"><span id="dashDate"></span></span>
       </div>
+
+      <!-- DASHBOARD SUMMARY (by-user net worth, day-over-day) -->
+      <div class="glass mb-6 p-5 lg:p-6">
+        <div class="flex items-start justify-between flex-wrap gap-3 mb-1">
+          <div>
+            <h3 class="font-display text-2xl font-bold">Dashboard Summary</h3>
+            <p class="text-sm" style="color: var(--muted);">Investment, contribution, income, expense and balance by user.</p>
+          </div>
+          <div class="flex items-end gap-3 flex-wrap">
+            <div>
+              <label class="label" style="font-size:10px;">From</label>
+              <input type="date" id="dsFrom" class="input" style="padding:7px 10px;" onchange="renderDashSummary()">
+            </div>
+            <div>
+              <label class="label" style="font-size:10px;">To</label>
+              <input type="date" id="dsTo" class="input" style="padding:7px 10px;" onchange="renderDashSummary()">
+            </div>
+            <label id="dsShowAllWrap" class="flex items-center gap-2 text-sm pb-2" style="white-space:nowrap; display:none;">
+              <input type="checkbox" id="dsShowAll" checked onchange="renderDashSummary()"> 👁 Show all users
+            </label>
+          </div>
+        </div>
+        <p id="dsSubtitle" class="text-xs mb-3" style="color: var(--muted);"></p>
+        <div id="dsByUser" class="overflow-x-auto"></div>
+        <p class="text-[11px] mt-2" style="color: var(--muted);">Investment, Contribution, Income and Expense are totalled from each user's entries in the chosen period. Balance = Income − Expense (investments and contributions are shown separately, not added into Balance). Leave "From" empty for all-time. Click a user to see their details.</p>
+      </div>
       <div class="glass mb-6 p-6 lg:p-8 relative overflow-hidden">
         <div class="absolute top-0 right-0 w-72 h-72 opacity-10" style="background: radial-gradient(circle, var(--gold), transparent 70%);"></div>
         <div class="relative">
@@ -1696,6 +1722,17 @@ end $$;</pre>
   </div>
 </div>
 
+<!-- USER DETAIL MODAL -->
+<div class="modal-overlay" id="userDetailModal">
+  <div class="modal-content p-6" style="max-width:560px;">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-display text-xl font-bold">👤 <span id="userDetailTitle">User</span></h3>
+      <button onclick="closeModal('userDetailModal')" class="p-2 rounded-lg hover:bg-white/5"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="userDetailBody"></div>
+  </div>
+</div>
+
 <!-- MANAGE MODULES MODAL -->
 <div class="modal-overlay" id="manageModulesModal">
   <div class="modal-content p-6" style="max-width:460px;">
@@ -2426,7 +2463,169 @@ function taxNewRegime(income) {
 const charts = {};
 const renderers = {};
 
+/* ===================== DASHBOARD SUMMARY — user-wise net worth ===================== */
+function _dsDay(v) { const d = v ? new Date(v + 'T23:59:59') : new Date(); return d; }
+function _dsOwnerRaw(x) { return (x.createdBy || x.createdByUser || 'Unknown'); }
+function _dsKey(s) { return (s || 'Unknown').trim().toLowerCase(); }
+function _dsNameMap() {
+  // normalized key -> best display name (prefer the users table's name)
+  const map = {};
+  (DB.data.users || []).forEach(u => { if (u.name) map[_dsKey(u.name)] = u.name; });
+  ['transactions', 'investments', 'assets', 'liabilities', 'loans'].forEach(k => (DB.data[k] || []).forEach(x => {
+    const raw = _dsOwnerRaw(x), key = _dsKey(raw);
+    if (!map[key]) map[key] = raw.trim();
+  }));
+  return map;
+}
+function _dsNetWorth(key, upto) {
+  let cash = 0;
+  (DB.data.transactions || []).forEach(t => {
+    if (_dsKey(_dsOwnerRaw(t)) !== key) return;
+    const d = new Date(t.date); if (isNaN(d) || d > upto) return;
+    cash += (t.type === 'income' ? 1 : -1) * (+t.amount || 0);
+  });
+  const sumOwned = (arr, f) => (arr || []).filter(x => _dsKey(_dsOwnerRaw(x)) === key).reduce((s, x) => s + f(x), 0);
+  const invest = sumOwned(DB.data.investments, x => (+x.current || 0));
+  const assets = sumOwned(DB.data.assets, x => (+x.value || 0));
+  const liab = sumOwned(DB.data.liabilities, x => (+x.value || 0));
+  const loans = sumOwned(DB.data.loans, x => (+x.principal || 0));
+  return { net: cash + invest + assets - liab - loans, cash, invest, debt: liab + loans };
+}
+function _dsUsers() {
+  const map = _dsNameMap();
+  return Object.keys(map).map(key => ({ key, name: map[key] })).sort((a, b) => a.name.localeCompare(b.name));
+}
+function _dsRow(key, from, to) {
+  const inRange = (dv) => { if (!dv) return true; const d = new Date(dv); if (isNaN(d)) return true; if (from && d < from) return false; if (to && d > to) return false; return true; };
+  let inc = 0, exp = 0, invv = 0, con = 0;
+  (DB.data.transactions || []).forEach(t => { if (_dsKey(_dsOwnerRaw(t)) !== key) return; if (!inRange(t.date)) return; if (t.type === 'income') inc += (+t.amount || 0); else if (t.type === 'expense') exp += (+t.amount || 0); });
+  (DB.data.investments || []).forEach(x => { if (_dsKey(_dsOwnerRaw(x)) !== key) return; if (!inRange(x.startDate)) return; invv += (+x.invested || 0); });
+  (DB.data.contributions || []).forEach(x => { if (_dsKey(_dsOwnerRaw(x)) !== key) return; if (!inRange(x.date)) return; con += (+x.amount || 0); });
+  return { inv: invv, con, inc, exp, bal: inc - exp };
+}
+function renderDashSummary() {
+  if (!AUTH.current) return;
+  const box = document.getElementById('dsByUser'); if (!box) return;
+  const isAdmin = AUTH.current.role === 'Admin';
+  const fromEl = document.getElementById('dsFrom'), toEl = document.getElementById('dsTo');
+  const from = (fromEl && fromEl.value) ? new Date(fromEl.value + 'T00:00:00') : null;
+  const to = (toEl && toEl.value) ? new Date(toEl.value + 'T23:59:59') : null;
+
+  const showAllWrap = document.getElementById('dsShowAllWrap'); if (showAllWrap) showAllWrap.style.display = isAdmin ? '' : 'none';
+  const showAll = isAdmin && (document.getElementById('dsShowAll') || {}).checked;
+
+  const sub = document.getElementById('dsSubtitle');
+  if (sub) {
+    if (!from && !to) sub.textContent = 'Period: All time (every entry).';
+    else {
+      const f = from ? from.toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'the beginning';
+      const t = to ? to.toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : 'the latest';
+      sub.textContent = `Period: ${f} → ${t}.`;
+    }
+  }
+
+  let users = _dsUsers();
+  if (!isAdmin || !showAll) { const meKey = _dsKey(AUTH.current.name); users = users.filter(u => u.key === meKey); if (!users.length) users = [{ key: meKey, name: AUTH.current.name }]; }
+
+  let tI = 0, tE = 0, tInv = 0, tCon = 0;
+  const rows = users.map(({ key, name }) => {
+    const o = _dsRow(key, from, to); tI += o.inc; tE += o.exp; tInv += o.inv; tCon += o.con;
+    return `<tr style="cursor:pointer;" onclick="openUserDetail('${key.replace(/'/g, "\\'")}')" title="Click to see ${name}'s details">
+      <td class="py-2 font-medium" style="color:var(--gold-bright);text-decoration:underline;text-underline-offset:3px;">${name}</td>
+      <td class="py-2 text-right font-display font-bold" style="color:var(--blue);">${fmt(o.inv)}</td>
+      <td class="py-2 text-right font-display font-bold" style="color:var(--gold-bright);">${fmt(o.con)}</td>
+      <td class="py-2 text-right font-display font-bold" style="color:var(--emerald);">${fmt(o.inc)}</td>
+      <td class="py-2 text-right font-display font-bold" style="color:var(--red);">${fmt(o.exp)}</td>
+      <td class="py-2 text-right font-display font-bold" style="color:${o.bal >= 0 ? 'var(--emerald)' : 'var(--red)'};">${fmt(o.bal)}</td></tr>`;
+  }).join('');
+  const tB = tI - tE;
+  box.innerHTML = `<table class="w-full text-sm whitespace-nowrap">
+    <thead><tr style="color:var(--muted);border-bottom:1px solid var(--border);" class="text-left">
+      <th class="pb-2 font-medium">User</th>
+      <th class="pb-2 font-medium text-right">Investment</th>
+      <th class="pb-2 font-medium text-right">Contribution</th>
+      <th class="pb-2 font-medium text-right">Income</th>
+      <th class="pb-2 font-medium text-right">Expense</th>
+      <th class="pb-2 font-medium text-right">Balance</th>
+    </tr></thead>
+    <tbody class="divide-y" style="border-color:var(--border);">${rows || '<tr><td colspan="6" class="py-4 text-center" style="color:var(--muted);">No data yet.</td></tr>'}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);font-weight:700;">
+      <td class="pt-2">Total</td>
+      <td class="pt-2 text-right font-display" style="color:var(--blue);">${fmt(tInv)}</td>
+      <td class="pt-2 text-right font-display" style="color:var(--gold-bright);">${fmt(tCon)}</td>
+      <td class="pt-2 text-right font-display" style="color:var(--emerald);">${fmt(tI)}</td>
+      <td class="pt-2 text-right font-display" style="color:var(--red);">${fmt(tE)}</td>
+      <td class="pt-2 text-right font-display" style="color:${tB >= 0 ? 'var(--emerald)' : 'var(--red)'};">${fmt(tB)}</td>
+    </tr></tfoot></table>`;
+}
+function openUserDetail(key) {
+  const dA = _dsDay((document.getElementById('dsDayA') || {}).value);
+  const nw = _dsNetWorth(key, dA);
+  const name = (_dsNameMap()[key]) || key;
+  const own = (arr) => (arr || []).filter(x => _dsKey(_dsOwnerRaw(x)) === key);
+  const txs = own(DB.data.transactions);
+  const income = txs.filter(t => t.type === 'income').reduce((s, t) => s + (+t.amount || 0), 0);
+  const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + (+t.amount || 0), 0);
+  const recent = txs.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8);
+  const stat = (label, val, color) => `<div class="glass p-3"><p class="text-[11px] uppercase tracking-wide" style="color:var(--muted);">${label}</p><p class="font-display text-lg font-bold" style="color:${color || 'var(--fg)'};">${val}</p></div>`;
+  document.getElementById('userDetailTitle').textContent = name;
+  document.getElementById('userDetailBody').innerHTML = `
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+      ${stat('Net worth', fmt(nw.net), 'var(--gold-bright)')}
+      ${stat('Cash', fmt(nw.cash), 'var(--emerald)')}
+      ${stat('Investments', fmt(nw.invest), 'var(--blue)')}
+      ${stat('Debt', fmt(nw.debt), 'var(--red)')}
+      ${stat('Total income', fmt(income), 'var(--emerald)')}
+      ${stat('Total expense', fmt(expense), 'var(--red)')}
+    </div>
+    <p class="text-xs uppercase tracking-wide mb-2" style="color:var(--muted);">Entry counts</p>
+    <p class="text-sm mb-4">${txs.length} transactions · ${own(DB.data.investments).length} investments · ${own(DB.data.assets).length} assets · ${own(DB.data.liabilities).length} liabilities · ${own(DB.data.loans).length} loans · ${own(DB.data.lending).length} lent/borrowed</p>
+    <p class="text-xs uppercase tracking-wide mb-2" style="color:var(--muted);">Recent transactions</p>
+    ${recent.length ? `<div class="space-y-1">${recent.map(t => `<div class="flex items-center justify-between text-sm p-2 rounded-lg" style="background:rgba(255,255,255,0.03);">
+      <span>${t.date ? new Date(t.date).toLocaleDateString('en', { day: 'numeric', month: 'short' }) : ''} · ${t.category || t.description || '—'}</span>
+      <span style="color:${t.type === 'income' ? 'var(--emerald)' : 'var(--red)'};">${t.type === 'income' ? '+' : '-'}${fmt(t.amount)}</span></div>`).join('')}</div>` : '<p class="text-sm" style="color:var(--muted);">No transactions yet.</p>'}`;
+  if (AUTH.current.role === 'Admin') {
+    const others = _dsUsers().filter(u => u.key !== key);
+    const opts = others.map(u => `<option value="${u.key.replace(/"/g, '&quot;')}">${u.name}</option>`).join('');
+    document.getElementById('userDetailBody').insertAdjacentHTML('beforeend', `
+      <div class="mt-4 pt-4" style="border-top:1px solid var(--border);">
+        <p class="text-xs uppercase tracking-wide mb-2" style="color:var(--muted);">Clean up / merge duplicate</p>
+        ${others.length ? `<div class="flex flex-wrap gap-2 items-center">
+          <span class="text-sm" style="color:var(--muted);">Move all of <strong>${name}</strong>'s entries into:</span>
+          <select id="udMergeTarget" class="input" style="max-width:200px;">${opts}</select>
+          <button onclick="mergeUserEntries('${key.replace(/'/g, "\\'")}')" class="btn-ghost">Merge</button>
+        </div>
+        <p class="text-[11px] mt-1" style="color:var(--muted);">e.g. merge "Mahesh Pandit" into "Mahesh" — the duplicate name then disappears.</p>` : '<p class="text-sm" style="color:var(--muted);">No other users to merge into.</p>'}
+      </div>`);
+  }
+  document.getElementById('userDetailModal').classList.add('active');
+}
+function mergeUserEntries(fromKey) {
+  if (!requirePerm('manageUsers')) return;
+  const sel = document.getElementById('udMergeTarget');
+  const targetKey = sel && sel.value;
+  if (!targetKey) { showToast('Pick a user to merge into', 'error'); return; }
+  if (targetKey === fromKey) { showToast('Pick a different user', 'error'); return; }
+  const map = _dsNameMap();
+  const targetName = map[targetKey] || targetKey;
+  const fromName = map[fromKey] || fromKey;
+  const targetAcc = (DB.data.users || []).find(u => _dsKey(u.name) === targetKey);
+  const targetUser = (targetAcc ? targetAcc.username : targetName).toString().toLowerCase();
+  if (!confirm(`Move ALL of "${fromName}"'s entries into "${targetName}"? This re-labels who those entries belong to.`)) return;
+  const tables = ['transactions', 'investments', 'loans', 'budgets', 'goals', 'documents', 'assets', 'liabilities', 'contributions', 'family', 'lending', 'messages'];
+  let count = 0;
+  tables.forEach(t => {
+    (DB.data[t] || []).slice().forEach(x => {
+      if (_dsKey(_dsOwnerRaw(x)) === fromKey) { DB.update(t, x.id, { createdBy: targetName, createdByUser: targetUser }); count++; }
+    });
+  });
+  showToast(`Merged ${count} entr${count === 1 ? 'y' : 'ies'} into ${targetName} ✅`, 'success');
+  closeModal('userDetailModal');
+  renderDashSummary();
+}
+
 renderers.dashboard = () => {
+  if (typeof renderDashSummary === 'function') renderDashSummary();
   const txs = DB.data.transactions;
   const now = new Date();
   const thisMonth = txs.filter(t => { const d = new Date(t.date); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
@@ -3534,32 +3733,26 @@ function chatCounterpartOptions() {
 renderers.messages = () => {
   if (!AUTH.current) return;
   const me = AUTH.current.username.toLowerCase();
-  const isAdmin = AUTH.current.role === 'Admin';
   const msgs = (DB.data.messages || []).slice().sort((a, b) => (a.ts || '').localeCompare(b.ts || ''));
   const peerWrap = document.getElementById('chatPeers');
 
-  if (isAdmin) {
-    // distinct non-admin counterparts that have any message, plus all non-admin users
-    const names = {};
-    DB.data.users.forEach(u => { if (u.role !== 'Admin') names[u.username.toLowerCase()] = u.name; });
-    msgs.forEach(m => { const other = (m.fromRole === 'Admin') ? m.toUser : m.fromUser; if (other && other !== 'admin') names[other] = names[other] || m.fromName || other; });
-    const list = Object.keys(names);
-    if (!_chatPeer && list.length) _chatPeer = list[0];
-    if (peerWrap) peerWrap.innerHTML = list.length ? list.map(u => {
-      const unread = msgs.some(m => m.fromUser === u && !m.read);
-      return `<button onclick="selectChatPeer('${u}')" class="w-full text-left p-3 rounded-xl mb-1 ${_chatPeer === u ? 'chat-peer-active' : ''}" style="background: ${_chatPeer === u ? 'rgba(212,165,116,0.12)' : 'rgba(255,255,255,0.02)'}; border:1px solid var(--border);">
-        <span class="font-semibold text-sm">${names[u]}</span> ${unread ? '<span class="badge badge-expense" style="font-size:10px;">new</span>' : ''}
-        <span class="block text-xs" style="color:var(--muted);">@${u}</span></button>`;
-    }).join('') : '<p class="text-sm" style="color:var(--muted);">No users yet.</p>';
-  } else if (peerWrap) {
-    peerWrap.innerHTML = '<div class="p-3 rounded-xl" style="background:rgba(212,165,116,0.08);border:1px solid var(--border);"><p class="font-semibold text-sm">Admin Support</p><p class="text-xs" style="color:var(--muted);">Send a message to your admin</p></div>';
-  }
+  // Peer-to-peer: anyone can message any other user account (any role).
+  const names = {};
+  DB.data.users.forEach(u => { const un = (u.username || '').toLowerCase(); if (un && un !== me) names[un] = u.name || un; });
+  msgs.forEach(m => { const other = (m.fromUser === me) ? m.toUser : (m.toUser === me ? m.fromUser : null); if (other && other !== me) names[other] = names[other] || m.fromName || other; });
+  const list = Object.keys(names);
+  if ((!_chatPeer || !names[_chatPeer]) && list.length) _chatPeer = list[0];
+  if (peerWrap) peerWrap.innerHTML = list.length ? list.map(u => {
+    const unread = msgs.some(m => m.fromUser === u && m.toUser === me && !m.read);
+    return `<button onclick="selectChatPeer('${u}')" class="w-full text-left p-3 rounded-xl mb-1 ${_chatPeer === u ? 'chat-peer-active' : ''}" style="background: ${_chatPeer === u ? 'rgba(212,165,116,0.12)' : 'rgba(255,255,255,0.02)'}; border:1px solid var(--border);">
+      <span class="font-semibold text-sm">${names[u]}</span> ${unread ? '<span class="badge badge-expense" style="font-size:10px;">new</span>' : ''}
+      <span class="block text-xs" style="color:var(--muted);">@${u}</span></button>`;
+  }).join('') : '<p class="text-sm" style="color:var(--muted);">No other users to chat with yet. Add people in <strong>Users &amp; Roles</strong> (each needs their own login), then you can message them here.</p>';
 
-  const peer = isAdmin ? _chatPeer : me;
-  const thread = msgs.filter(m => isAdmin ? (m.fromUser === peer || m.toUser === peer) : (m.fromUser === me || m.toUser === me || m.toUser === 'admin' && m.fromUser === me));
-  // mark incoming as read
+  const peer = _chatPeer;
+  const thread = msgs.filter(m => peer && ((m.fromUser === me && m.toUser === peer) || (m.fromUser === peer && m.toUser === me)));
   let changed = false;
-  thread.forEach(m => { const incoming = isAdmin ? (m.fromUser === peer && m.fromRole !== 'Admin') : (m.fromRole === 'Admin'); if (incoming && !m.read) { m.read = true; changed = true; } });
+  thread.forEach(m => { if (m.fromUser === peer && m.toUser === me && !m.read) { m.read = true; changed = true; } });
   if (changed) DB.save();
 
   const box = document.getElementById('chatThread');
@@ -3588,11 +3781,11 @@ renderers.messages = () => {
     box.scrollTop = box.scrollHeight;
   }
   const cs = document.getElementById('chatSendWrap');
-  if (cs) cs.style.display = (isAdmin && !_chatPeer) ? 'none' : '';
+  if (cs) cs.style.display = peer ? '' : 'none';
   const hdr = document.getElementById('chatHeader');
   if (hdr) {
-    const title = isAdmin ? (_chatPeer ? ('Chat with @' + _chatPeer) : 'Select a conversation') : 'Admin Support';
-    const showDel = thread.length && (isAdmin ? _chatPeer : true);
+    const title = peer ? ('Chat with @' + peer) : 'Select a conversation';
+    const showDel = thread.length && peer;
     hdr.innerHTML = `<span class="font-semibold">${title}</span>${showDel ? `<button onclick="deleteConversation()" class="btn-danger" style="padding:6px 12px;font-size:12px;">🗑 Delete conversation</button>` : ''}`;
   }
   const bar = document.getElementById('chatEmojiBar');
@@ -3604,16 +3797,14 @@ renderers.messages = () => {
 function deleteConversation() {
   if (!AUTH.current) return;
   const me = AUTH.current.username.toLowerCase();
-  const isAdmin = AUTH.current.role === 'Admin';
-  const peer = isAdmin ? _chatPeer : me;
-  if (isAdmin && !peer) return;
-  const inThread = (m) => isAdmin ? (m.fromUser === peer || m.toUser === peer) : (m.fromUser === me || m.toUser === me);
+  const peer = _chatPeer;
+  if (!peer) return;
+  const inThread = (m) => (m.fromUser === me && m.toUser === peer) || (m.fromUser === peer && m.toUser === me);
   const targets = (DB.data.messages || []).filter(m => inThread(m) && canModify(m));
   if (!targets.length) { showToast('Nothing here you can delete', 'info'); return; }
   if (!confirm(`Delete ${targets.length} message(s) in this conversation?`)) return;
   targets.forEach(m => DB.remove('messages', m.id));
   showToast('Conversation deleted', 'info');
-  if (isAdmin) _chatPeer = null;
   renderers.messages();
 }
 const CHAT_EMOJIS = ['😀','😂','🙏','👍','❤️','🎉','🔥','😊','😍','😎','🤝','💰','📌','✅','🙌','👋','😢','🤔','💡','🚀'];
@@ -3652,9 +3843,8 @@ function sendMessage(e) {
   const input = document.getElementById('chatInput');
   const text = (input.value || '').trim();
   if (!text && !_chatPending) return;
-  const isAdmin = AUTH.current.role === 'Admin';
-  const to = isAdmin ? _chatPeer : 'admin';
-  if (isAdmin && !to) { showToast('Pick a user to reply to', 'error'); return; }
+  const to = _chatPeer;
+  if (!to) { showToast('Pick someone to message first', 'error'); return; }
   const msg = { fromUser: AUTH.current.username.toLowerCase(), fromName: AUTH.current.name, fromRole: AUTH.current.role, toUser: to, text, ts: new Date().toISOString(), read: false };
   if (_chatPending) { msg.fileData = _chatPending.fileData; msg.fileName = _chatPending.fileName; msg.fileType = _chatPending.fileType; }
   DB.add('messages', msg);
@@ -3669,8 +3859,7 @@ function deleteMessage(id) {
 function chatUnreadCount() {
   if (!AUTH.current) return 0;
   const me = AUTH.current.username.toLowerCase();
-  const isAdmin = AUTH.current.role === 'Admin';
-  return (DB.data.messages || []).filter(m => !m.read && (isAdmin ? m.fromRole !== 'Admin' : (m.toUser === me || (m.toUser === 'admin' && false)) && m.fromRole === 'Admin')).length;
+  return (DB.data.messages || []).filter(m => m.toUser === me && !m.read).length;
 }
 function updateChatBadge() {
   const b = document.getElementById('chatNavBadge'); if (!b) return;
@@ -4874,7 +5063,9 @@ const AUTH = {
     name = (name || '').trim(); username = (username || '').trim();
     if (!name || !username || !pin) return { ok: false, msg: 'Name, username and PIN are all required' };
     if (String(pin).length < 4) return { ok: false, msg: 'PIN / password must be at least 4 characters' };
-    if (this.findByUsername(username)) return { ok: false, msg: 'That username already exists' };
+    const unameLc = username.toLowerCase(), nameLc = name.toLowerCase();
+    if (DB.data.users.some(u => (u.username || '').trim().toLowerCase() === unameLc || (u.name || '').trim().toLowerCase() === nameLc))
+      return { ok: false, msg: 'A user with that name or username already exists' };
     if (!ROLE_PERMS[role]) role = 'Viewer';
     const u = { id: DB.uid(), name, username, pin: this._hash(pin), role, createdAt: new Date().toISOString() };
     DB.data.users.push(u); DB.save();
@@ -4883,9 +5074,11 @@ const AUTH = {
   updateUser(id, patch) {
     const u = DB.data.users.find(x => x.id === id);
     if (!u) return { ok: false, msg: 'User not found' };
-    if (patch.username) {
-      const ex = this.findByUsername(patch.username);
-      if (ex && ex.id !== id) return { ok: false, msg: 'That username is taken' };
+    if (patch.username || patch.name) {
+      const unameLc = (patch.username || u.username || '').trim().toLowerCase();
+      const nameLc = (patch.name || u.name || '').trim().toLowerCase();
+      if (DB.data.users.some(x => x.id !== id && ((x.username || '').trim().toLowerCase() === unameLc || (x.name || '').trim().toLowerCase() === nameLc)))
+        return { ok: false, msg: 'Another user already has that name or username' };
     }
     if (patch.role && u.role === 'Admin' && patch.role !== 'Admin' &&
         DB.data.users.filter(x => x.role === 'Admin').length <= 1) {
