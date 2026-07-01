@@ -353,6 +353,33 @@
     text-align: center; pointer-events: none;
   }
 </style>
+<style id="ww-addon-styles">
+  .ai-msg{max-width:88%;padding:12px 15px;border-radius:16px;font-size:14px;line-height:1.6;white-space:normal;word-wrap:break-word;}
+  .ai-msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--gold),var(--gold-deep));color:#1a1208;border-bottom-right-radius:4px;}
+  .ai-msg.bot{align-self:flex-start;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--fg);border-bottom-left-radius:4px;}
+  .ai-msg.bot h1,.ai-msg.bot h2,.ai-msg.bot h3{font-family:'Fraunces',serif;margin:.5em 0 .3em;font-weight:700;}
+  .ai-msg.bot h1{font-size:1.25em;} .ai-msg.bot h2{font-size:1.15em;} .ai-msg.bot h3{font-size:1.05em;}
+  .ai-msg.bot ul,.ai-msg.bot ol{margin:.4em 0 .4em 1.2em;} .ai-msg.bot li{margin:.15em 0;}
+  .ai-msg.bot code{background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:5px;font-size:.9em;}
+  .ai-msg.bot table{border-collapse:collapse;margin:.6em 0;width:100%;font-size:13px;}
+  .ai-msg.bot th,.ai-msg.bot td{border:1px solid var(--border);padding:6px 9px;text-align:left;}
+  .ai-msg.bot th{background:rgba(212,165,116,0.12);color:var(--gold-bright);}
+  .ai-msg.bot p{margin:.4em 0;} .ai-msg.bot strong{color:var(--gold-bright);}
+  .ai-typing{display:inline-flex;gap:4px;} .ai-typing span{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:aiBlink 1.2s infinite;}
+  .ai-typing span:nth-child(2){animation-delay:.2s;} .ai-typing span:nth-child(3){animation-delay:.4s;}
+  @keyframes aiBlink{0%,60%,100%{opacity:.25;}30%{opacity:1;}}
+  .ai-chip{cursor:pointer;font-size:12px;padding:7px 12px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--fg-dim);transition:.2s;}
+  .ai-chip:hover{border-color:var(--border-bright);color:var(--fg);}
+  .cust-tab{cursor:pointer;font-size:13px;font-weight:600;padding:7px 13px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.03);color:var(--fg-dim);}
+  .cust-tab.active{background:rgba(212,165,116,0.14);color:var(--gold-bright);border-color:var(--border-bright);}
+  .cust-block{position:relative;}
+  .cust-block .blk-tools{position:absolute;top:10px;right:10px;display:flex;gap:6px;opacity:0;transition:.2s;}
+  .cust-block:hover .blk-tools{opacity:1;}
+  .blk-btn{cursor:pointer;font-size:11px;padding:4px 9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev);color:var(--fg-dim);}
+  .blk-btn:hover{color:var(--fg);border-color:var(--border-bright);}
+  .cust-input{width:100%;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--fg);font-size:13px;font-family:inherit;}
+  .cust-input:focus{outline:none;border-color:var(--gold);}
+</style>
 </head>
 <body>
 
@@ -392,6 +419,11 @@
       <span class="nav-label">Dashboard</span>
       <button class="pin-btn" onclick="togglePin(event,'dashboard')" title="Pin to top">📌</button>
     </div>
+    <div class="sidebar-link" data-section="ai">
+      <span class="nav-ico">🤖</span>
+      <span class="nav-label">AI Assistant</span>
+      <button class="pin-btn" onclick="togglePin(event,'ai')" title="Pin to top">📌</button>
+    </div>
     <div class="sidebar-link" data-section="transactions">
       <span class="nav-ico">💸</span>
       <span class="nav-label">Transactions</span>
@@ -426,6 +458,11 @@
       <span class="nav-ico">📊</span>
       <span class="nav-label">Reports</span>
       <button class="pin-btn" onclick="togglePin(event,'reports')" title="Pin to top">📌</button>
+    </div>
+    <div class="sidebar-link" data-section="custom">
+      <span class="nav-ico">🧩</span>
+      <span class="nav-label">Custom Sections</span>
+      <button class="pin-btn" onclick="togglePin(event,'custom')" title="Pin to top">📌</button>
     </div>
     <div class="sidebar-link" data-section="customreports" data-perm="manageUsers">
       <span class="nav-ico">🛠️</span>
@@ -1020,6 +1057,36 @@
           <div id="userActivity"></div>
         </div>
       </div>
+    </section>
+
+    <!-- AI ASSISTANT -->
+    <section id="ai" class="section">
+      <div class="glass p-4 lg:p-5 mb-4" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" id="aiChips"></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button onclick="aiClearChat()" class="btn-ghost" style="font-size:12px;padding:7px 12px;">🧹 Clear</button>
+          <button onclick="openModal('aiKeyModal')" class="btn-ghost" style="font-size:12px;padding:7px 12px;" title="Free AI settings & model">⚙️ AI Settings</button>
+        </div>
+      </div>
+      <div class="glass p-0 overflow-hidden" style="display:flex;flex-direction:column;height:calc(100vh - 230px);min-height:420px;">
+        <div id="aiMessages" class="flex-1 overflow-y-auto p-4 lg:p-6" style="display:flex;flex-direction:column;gap:14px;"></div>
+        <div style="border-top:1px solid var(--border);padding:12px;display:flex;gap:10px;align-items:flex-end;background:rgba(255,255,255,0.02);">
+          <textarea id="aiInput" rows="1" placeholder="Ask anything about your finances, or say 'generate a monthly expense report'…" class="input" style="resize:none;max-height:140px;" onkeydown="aiKeydown(event)" oninput="aiAutogrow(this)"></textarea>
+          <button id="aiSendBtn" onclick="aiSend()" class="btn-primary flex-shrink-0" style="height:44px;">Send</button>
+        </div>
+      </div>
+      <p class="text-xs mt-2" style="color:var(--muted);">100% free AI — no key, no sign-up, no setup. It reads a private summary of your WealthWise data on this device to answer and draft reports, and never changes your data.</p>
+    </section>
+
+    <!-- CUSTOM SECTIONS -->
+    <section id="custom" class="section">
+      <div class="glass p-4 lg:p-5 mb-4" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;" id="customTabs"></div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="customAddSection()" data-perm="create" class="btn-primary" style="font-size:13px;padding:8px 14px;">＋ New Section</button>
+        </div>
+      </div>
+      <div id="customBody"></div>
     </section>
 
     <!-- ASSETS & LIABILITIES -->
@@ -2044,6 +2111,37 @@ end $$;</pre>
   </div>
 </div>
 
+<!-- AI KEY MODAL -->
+<div class="modal-overlay" id="aiKeyModal">
+  <div class="modal-content p-6" style="max-width:520px;">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-display text-xl font-bold">AI Settings</h3>
+      <button onclick="closeModal('aiKeyModal')" class="btn-ghost" style="padding:6px 10px;">✕</button>
+    </div>
+    <div class="p-3 rounded-xl mb-4" style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.25);">
+      <p class="text-sm" style="color:var(--emerald);">✅ Free AI is on — no key, no sign-up, no setup. It runs on open, keyless providers and works even when you open the file directly.</p>
+    </div>
+    <p class="text-xs mb-3" style="color:var(--muted);">The optional box below is only if you'd like to use your <b>own</b> Anthropic key for higher quality/limits. Leave it blank to stay 100% free.</p>
+    <label class="label">Optional: your own Anthropic key (backup)</label>
+    <input id="aiKeyInput" type="password" class="input" placeholder="sk-ant-…  (leave blank to stay 100% free)">
+    <div class="flex gap-2 mt-4">
+      <button onclick="aiSaveKey()" class="btn-primary flex-1">Save settings</button>
+      <button onclick="aiClearKey()" class="btn-ghost">Clear key</button>
+    </div>
+  </div>
+</div>
+
+<!-- CUSTOM BLOCK MODAL -->
+<div class="modal-overlay" id="customBlockModal">
+  <div class="modal-content p-6" style="max-width:640px;">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-display text-xl font-bold" id="customBlockTitle">Add Block</h3>
+      <button onclick="closeModal('customBlockModal')" class="btn-ghost" style="padding:6px 10px;">✕</button>
+    </div>
+    <div id="customBlockBody"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast">
   <p class="text-sm font-medium" id="toastMsg"></p>
 </div>
@@ -2221,7 +2319,9 @@ const titles = {
   lending: ['Lent & Borrowed', 'Money you will get back & money you must pay'],
   comparison: ['Comparison & Trends', 'User-wise periods, history and A vs B'],
   vault: ['Secure Vault', 'IDs, passwords, bank & contact details'],
-  messages: ['Conversations', 'Chat, share files, and start audio/video calls']
+  messages: ['Conversations', 'Chat, share files, and start audio/video calls'],
+  ai: ['AI Assistant', 'Ask anything, generate reports — powered by AI'],
+  custom: ['Custom Sections', 'Build your own sections, fields, tables & formulas']
 };
 const navigate = (section) => {
   if (section === 'users' && !AUTH.can('manageUsers')) { section = 'dashboard'; }
@@ -5442,6 +5542,350 @@ function refreshAll() {
   if (active) { const id = active.id; renderers[id] && renderers[id](); }
   renderers.dashboard && renderers.dashboard();
   if (typeof updateChatBadge === 'function') updateChatBadge();
+}
+
+/* ============================================================
+   ADD-ON 1: FREE AI ASSISTANT   +   ADD-ON 2: CUSTOM SECTIONS
+   (self-contained; uses existing DB, fmt, showToast, openModal,
+    closeModal, downloadFile, AUTH — nothing else changed)
+   ============================================================ */
+function cEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+/* ---------- shared finance snapshot ---------- */
+function wwSnapshot(){
+  const d=DB.data||{};
+  const txs=d.transactions||[], inv=d.investments||[], loans=d.loans||[], budgets=d.budgets||[], goals=d.goals||[];
+  const sum=(a,f)=>a.reduce((s,x)=>s+(Number(f(x))||0),0);
+  const income=sum(txs.filter(t=>t.type==='income'),t=>t.amount);
+  const expense=sum(txs.filter(t=>t.type==='expense'),t=>t.amount);
+  const invIn=sum(inv,i=>i.invested), invCur=sum(inv,i=>i.current);
+  const debt=sum(loans,l=>l.principal);
+  const byCat={}; txs.filter(t=>t.type==='expense').forEach(t=>{const c=t.category||'Other';byCat[c]=(byCat[c]||0)+(Number(t.amount)||0);});
+  return {income,expense,savings:income-expense,invIn,invCur,invReturns:invCur-invIn,debt,
+          netWorth:(income-expense)+invCur-debt,byCat,txCount:txs.length,
+          goalsN:goals.length,budgetsN:budgets.length};
+}
+function wwVars(){ const s=wwSnapshot(); return {
+  income:s.income, expense:s.expense, savings:s.savings, netWorth:s.netWorth,
+  investments:s.invCur, invested:s.invIn, returns:s.invReturns, debt:s.debt,
+  transactions:s.txCount, goals:s.goalsN, budgets:s.budgetsN }; }
+const WW_VAR_HINT='income, expense, savings, netWorth, investments, invested, returns, debt, transactions';
+
+/* ---------- tiny safe formula evaluator ---------- */
+function evalFormula(expr, vars){
+  if(expr==null||expr==='') return '';
+  let e=String(expr).trim().replace(/^=/,'');
+  if(!/^[0-9\s+\-*/%().,a-zA-Z_]*$/.test(e)) return '#ERR';
+  const names=Object.keys(vars);
+  try{
+    const f=new Function(...names, '"use strict";return ('+e+');');
+    const v=f(...names.map(n=>vars[n]));
+    return (typeof v==='number'&&isFinite(v))?v:(v==null?'':v);
+  }catch(_){ return '#ERR'; }
+}
+
+/* ---------- minimal markdown renderer (for AI + text blocks) ---------- */
+function mdToHtml(md){
+  const esc=s=>cEsc(s);
+  const inline=t=>esc(t)
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>');
+  const lines=String(md||'').split('\n'); let html=''; let i=0;
+  while(i<lines.length){
+    let ln=lines[i];
+    if(/^\s*$/.test(ln)){i++;continue;}
+    if(/\|/.test(ln) && i+1<lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i+1]) && lines[i+1].indexOf('-')>=0){
+      const cells=r=>r.split('|').map(c=>c.trim()).filter((c,idx,arr)=>!(c===''&&(idx===0||idx===arr.length-1)));
+      const head=cells(ln); i+=2; const rows=[];
+      while(i<lines.length && /\|/.test(lines[i])){ rows.push(cells(lines[i])); i++; }
+      html+='<table><thead><tr>'+head.map(h=>'<th>'+inline(h)+'</th>').join('')+'</tr></thead><tbody>'+
+        rows.map(r=>'<tr>'+r.map(c=>'<td>'+inline(c)+'</td>').join('')+'</tr>').join('')+'</tbody></table>'; continue;
+    }
+    let m;
+    if(m=ln.match(/^\s*(#{1,3})\s+(.*)/)){ const lv=m[1].length; html+='<h'+lv+'>'+inline(m[2])+'</h'+lv+'>'; i++; continue; }
+    if(/^\s*[-*]\s+/.test(ln)){ html+='<ul>'; while(i<lines.length&&/^\s*[-*]\s+/.test(lines[i])){ html+='<li>'+inline(lines[i].replace(/^\s*[-*]\s+/,''))+'</li>'; i++; } html+='</ul>'; continue; }
+    if(/^\s*\d+\.\s+/.test(ln)){ html+='<ol>'; while(i<lines.length&&/^\s*\d+\.\s+/.test(lines[i])){ html+='<li>'+inline(lines[i].replace(/^\s*\d+\.\s+/,''))+'</li>'; i++; } html+='</ol>'; continue; }
+    html+='<p>'+inline(ln)+'</p>'; i++;
+  }
+  return html;
+}
+
+/* ============================================================ AI ASSISTANT */
+const AI_CHIPS=['Summarise my finances','Where can I cut expenses?','Generate a monthly expense report',
+                'Am I saving enough?','Suggest a budget plan','Explain my investment returns'];
+let aiHistory=[];
+renderers.ai=function(){
+  const chips=document.getElementById('aiChips');
+  if(chips && !chips.dataset.done){ chips.innerHTML=AI_CHIPS.map(c=>`<span class="ai-chip" onclick="aiQuick('${cEsc(c)}')">${cEsc(c)}</span>`).join(''); chips.dataset.done='1'; }
+  const box=document.getElementById('aiMessages');
+  if(box && !box.dataset.greeted){ box.dataset.greeted='1';
+    aiPushMsg('bot',"Hi! I'm your **WealthWise assistant** — 100% free, no key or sign-up needed. Ask me anything about your money, or say *“generate a monthly expense report”* and I'll draft it from your data."); }
+  const ki=document.getElementById('aiKeyInput'); if(ki) ki.value=(DB.data.settings&&DB.data.settings.aiKey)||'';
+};
+function aiQuick(t){ const inp=document.getElementById('aiInput'); inp.value=t; aiSend(); }
+function aiAutogrow(el){ el.style.height='auto'; el.style.height=Math.min(140,el.scrollHeight)+'px'; }
+function aiKeydown(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); aiSend(); } }
+function aiPushMsg(role,text){
+  const box=document.getElementById('aiMessages'); const d=document.createElement('div');
+  d.className='ai-msg '+(role==='user'?'user':'bot');
+  d.innerHTML = role==='user' ? cEsc(text) : mdToHtml(text);
+  box.appendChild(d); box.scrollTop=box.scrollHeight; return d;
+}
+function aiPushTyping(){ const box=document.getElementById('aiMessages'); const d=document.createElement('div');
+  d.className='ai-msg bot'; d.innerHTML='<span class="ai-typing"><span></span><span></span><span></span></span>';
+  box.appendChild(d); box.scrollTop=box.scrollHeight; return d; }
+function aiClearChat(){ const box=document.getElementById('aiMessages'); if(box){ box.innerHTML=''; box.dataset.greeted=''; } aiHistory=[]; renderers.ai(); }
+function aiSaveKey(){
+  DB.data.settings.aiKey=(document.getElementById('aiKeyInput').value||'').trim();
+  DB.save(); closeModal('aiKeyModal'); showToast('AI settings saved ✅');
+}
+function aiClearKey(){ if(DB.data.settings) delete DB.data.settings.aiKey; DB.save(); const ki=document.getElementById('aiKeyInput'); if(ki) ki.value=''; showToast('Key cleared — staying 100% free','info'); }
+
+function wwContextString(){
+  const d=DB.data||{}; const s=wwSnapshot(); const L=[];
+  L.push(`Currency ₹. Income ${s.income}, Expense ${s.expense}, Net savings ${s.savings}.`);
+  L.push(`Investments invested ${s.invIn}, current ${s.invCur} (returns ${s.invReturns}). Debt/loans ${s.debt}. Est. net worth ${s.netWorth}.`);
+  const cats=Object.entries(s.byCat).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(cats.length) L.push('Top expense categories: '+cats.map(c=>c[0]+' ₹'+Math.round(c[1])).join(', ')+'.');
+  const recent=(d.transactions||[]).slice(0,20).map(t=>`${t.date||''} ${t.type||''} ${t.category||''} ₹${t.amount||0} ${t.description||''}`.trim());
+  if(recent.length) L.push('Recent transactions:\n'+recent.join('\n'));
+  const goals=(d.goals||[]).map(g=>`${g.name} ${g.current||0}/${g.target||0} by ${g.date||''}`);
+  if(goals.length) L.push('Goals: '+goals.join('; ')+'.');
+  const bud=(d.budgets||[]).map(b=>`${b.category} limit ₹${b.limit||0}`);
+  if(bud.length) L.push('Budgets: '+bud.join('; ')+'.');
+  return L.join('\n');
+}
+function aiErrText(e){ try{ if(!e)return 'unknown'; if(typeof e==='string')return e;
+  if(e.message)return e.message; if(e.error&&e.error.message)return e.error.message;
+  if(e.error)return typeof e.error==='string'?e.error:JSON.stringify(e.error); return JSON.stringify(e); }catch(_){ return String(e); } }
+async function pollText(r){ const raw=await r.text(); try{ const j=JSON.parse(raw);
+  if(j&&j.choices&&j.choices[0]) return (j.choices[0].message&&j.choices[0].message.content)||j.choices[0].text||'';
+  if(typeof j==='string') return j; return raw; }catch(_){ return raw; } }
+
+async function aiCall(messages){
+  const ctx="You are the WealthWise AI assistant, a warm, practical personal-finance helper inside the user's WealthWise app. Context is Indian (currency ₹). Use ONLY the user's data below to answer, generate reports, tables and insights. If data is missing, say so briefly. Use clear markdown — short headings, bullet lists and tables. Never invent numbers.\n\nUSER'S CURRENT WEALTHWISE DATA (private):\n"+wwContextString();
+  const key=(DB.data.settings&&DB.data.settings.aiKey)||'';
+  const sysMsgs=[{role:'system',content:ctx}].concat(messages.map(m=>({role:m.role,content:m.content})));
+  const lastUser=[...messages].reverse().find(m=>m.role==='user');
+  const single=ctx+'\n\n--- Question ---\n'+((lastUser&&lastUser.content)||'');
+  const singleShort=(ctx.slice(0,1100))+'\n\n--- Question ---\n'+((lastUser&&lastUser.content)||'').slice(0,600);
+
+  // If the user chose to add their OWN Anthropic key, use it (best quality, works anywhere)
+  if(key){
+    const headers={'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'};
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers,
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:4000,system:ctx,messages})});
+    if(!res.ok){ const t=await res.text().catch(()=>''); throw new Error('HTTP '+res.status+' '+t.slice(0,150)); }
+    const data=await res.json();
+    return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim()||'(no response)';
+  }
+
+  const errs=[];
+  // 1) Pollinations — FREE, no key, no signup, CORS-open (works even from file://). POST (multi-turn).
+  try{
+    const r=await fetch('https://text.pollinations.ai/openai',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({model:'openai',messages:sysMsgs,referrer:'wealthwise',private:true})});
+    if(r.ok){ const t=(await pollText(r)).trim(); if(t) return t; errs.push('poll-empty'); } else errs.push('poll '+r.status);
+  }catch(e){ errs.push('poll '+aiErrText(e)); }
+  // 2) Pollinations GET (simple request — most reliable from file://)
+  try{
+    const r=await fetch('https://text.pollinations.ai/'+encodeURIComponent(singleShort)+'?model=openai&referrer=wealthwise');
+    if(r.ok){ const t=(await r.text()).trim(); if(t && t[0]!=='<') return t; } else errs.push('pollget '+r.status);
+  }catch(e){ errs.push('pollget '+aiErrText(e)); }
+  // 3) keyless proxy (works inside the Claude preview only)
+  try{ const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:ctx,messages})});
+    if(r.ok){ const d=await r.json(); const t=(d.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim(); if(t) return t; } }catch(e){}
+  throw new Error('Free AI unreachable ('+errs.join(' | ').slice(0,180)+')');
+}
+async function aiSend(){
+  const inp=document.getElementById('aiInput'); const text=(inp.value||'').trim(); if(!text) return;
+  inp.value=''; aiAutogrow(inp);
+  aiPushMsg('user',text); aiHistory.push({role:'user',content:text});
+  if(aiHistory.length>16) aiHistory=aiHistory.slice(-16);
+  const typing=aiPushTyping(); const btn=document.getElementById('aiSendBtn'); btn.disabled=true;
+  try{
+    const reply=await aiCall(aiHistory);
+    typing.remove(); aiPushMsg('bot',reply); aiHistory.push({role:'assistant',content:reply});
+  }catch(e){
+    typing.remove();
+    const msg=String((e&&e.message)||e).slice(0,200);
+    aiPushMsg('bot','⚠️ The free AI didn\'t respond just now — it can be briefly busy. Please tap send again.\n\nIf it keeps failing, an ad-blocker/VPN or your network may be blocking it. You can also add your own key in **⚙️ AI Settings** as a backup.\n\n`'+msg+'`');
+  }finally{ btn.disabled=false; }
+}
+
+/* ============================================================ CUSTOM SECTIONS */
+function customEnsure(){ if(!DB.data.settings.customSections) DB.data.settings.customSections=[]; return DB.data.settings.customSections; }
+function custCanEdit(){ return (typeof AUTH==='undefined')||AUTH.can('create'); }
+function custVar(name){ return String(name||'').replace(/[^a-zA-Z0-9_]/g,'').replace(/^[0-9]+/,''); }
+function custFmt(v,cur){ if(v==='#ERR')return '#ERR'; if(typeof v==='number'&&isFinite(v)) return cur?fmt(Math.round(v)):(Math.round(v*100)/100).toString(); return String(v==null?'':v); }
+const customState={active:null,editing:null};
+
+renderers.custom=function(){ const secs=customEnsure();
+  if(!customState.active||!secs.find(s=>s.id===customState.active)) customState.active=(secs[0]&&secs[0].id)||null;
+  customRenderTabs(); customRenderActive(); };
+function customRenderTabs(){ const secs=customEnsure(); const wrap=document.getElementById('customTabs');
+  wrap.innerHTML=secs.map(s=>`<div class="cust-tab ${s.id===customState.active?'active':''}" onclick="customSetActive('${s.id}')">${s.icon||'🧩'} ${cEsc(s.name)}</div>`).join('')
+    || '<span class="text-xs" style="color:var(--muted)">No custom sections yet — click “New Section”.</span>'; }
+function customSetActive(id){ customState.active=id; customRenderTabs(); customRenderActive(); }
+function customFindSection(id){ return customEnsure().find(s=>s.id===id); }
+function customFindBlock(sid,bid){ const s=customFindSection(sid); return s&&(s.blocks||[]).find(b=>b.id===bid); }
+function customAddSection(){ if(!custCanEdit())return showToast("You don't have permission",'error');
+  const name=prompt('Name this section (e.g. “Subscriptions”, “Side Income”, “Insurance”):'); if(!name||!name.trim())return;
+  const secs=customEnsure(); const sec={id:DB.uid(),name:name.trim(),icon:'🧩',blocks:[]}; secs.push(sec);
+  customState.active=sec.id; DB.save(); customRenderTabs(); customRenderActive(); showToast('Section created 🎉'); }
+function customRenameSection(){ const s=customFindSection(customState.active); if(!s||!custCanEdit())return;
+  const n=prompt('Rename section:',s.name); if(!n||!n.trim())return; s.name=n.trim(); DB.save(); customRenderTabs(); customRenderActive(); }
+function customDeleteSection(){ const s=customFindSection(customState.active); if(!s||!custCanEdit())return;
+  if(!confirm('Delete section “'+s.name+'” and all its blocks?'))return;
+  const secs=customEnsure(); const i=secs.findIndex(x=>x.id===s.id); secs.splice(i,1);
+  customState.active=(secs[0]&&secs[0].id)||null; DB.save(); customRenderTabs(); customRenderActive(); showToast('Section deleted','info'); }
+
+function customRenderActive(){
+  const body=document.getElementById('customBody'); const sec=customFindSection(customState.active);
+  if(!sec){ body.innerHTML=`<div class="glass p-8 text-center"><p class="font-display text-2xl font-bold mb-2">Build your own section</p>
+    <p class="text-sm mb-5" style="color:var(--muted)">Add headings, key–value fields, live metrics with formulas, and editable tables — formatted your way.</p>
+    ${custCanEdit()?'<button class="btn-primary" onclick="customAddSection()">＋ Create your first section</button>':'<p class="text-xs" style="color:var(--muted)">Ask an admin to create one.</p>'}</div>`; return; }
+  const add=custCanEdit()?`<div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="btn-ghost" style="font-size:12px;padding:6px 10px;" onclick="customAddBlock('heading')">＋ Heading</button>
+      <button class="btn-ghost" style="font-size:12px;padding:6px 10px;" onclick="customAddBlock('text')">＋ Text</button>
+      <button class="btn-ghost" style="font-size:12px;padding:6px 10px;" onclick="customAddBlock('fields')">＋ Fields</button>
+      <button class="btn-ghost" style="font-size:12px;padding:6px 10px;" onclick="customAddBlock('metric')">＋ Metric</button>
+      <button class="btn-ghost" style="font-size:12px;padding:6px 10px;" onclick="customAddBlock('table')">＋ Table</button>
+      <button class="btn-ghost" style="font-size:12px;padding:6px 10px;" onclick="customRenameSection()">✏️ Rename</button>
+      <button class="btn-danger" style="font-size:12px;padding:6px 10px;" onclick="customDeleteSection()">🗑 Delete</button></div>`:'';
+  let html=`<div class="glass p-4 lg:p-5 mb-4" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <h3 class="font-display text-xl font-bold">${cEsc(sec.name)}</h3>${add}</div>`;
+  if(!(sec.blocks||[]).length){ html+=`<div class="glass p-8 text-center"><p class="text-sm" style="color:var(--muted)">Empty section.${custCanEdit()?' Use the buttons above to add a heading, fields, a metric, or a table.':''}</p></div>`; }
+  (sec.blocks||[]).forEach(b=>{ html+=customRenderBlock(sec,b); });
+  body.innerHTML=html;
+}
+function customRenderBlock(sec,b){
+  const tools=custCanEdit()?`<div class="blk-tools">
+     <button class="blk-btn" onclick="customMoveBlock('${sec.id}','${b.id}',-1)">↑</button>
+     <button class="blk-btn" onclick="customMoveBlock('${sec.id}','${b.id}',1)">↓</button>
+     <button class="blk-btn" onclick="customEditBlock('${sec.id}','${b.id}')">Edit</button>
+     <button class="blk-btn" onclick="customDeleteBlock('${sec.id}','${b.id}')">✕</button></div>`:'';
+  let inner='';
+  if(b.type==='heading'){ inner=`<h2 class="font-display text-2xl font-bold" style="${b.color?('color:'+cEsc(b.color)):''}">${cEsc(b.text||'Heading')}</h2>`; }
+  else if(b.type==='text'){ inner=`<div class="ai-msg bot" style="max-width:100%;background:transparent;border:none;padding:0;">${mdToHtml(b.text||'')}</div>`; }
+  else if(b.type==='fields'){ const vars=wwVars();
+    inner='<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">'+(b.items||[]).map(it=>{
+      let v=it.value; if(String(v||'').trim().startsWith('=')) v=custFmt(evalFormula(v,vars),it.currency);
+      return `<div class="p-3 rounded-xl" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);">
+        <p class="text-xs uppercase tracking-wide" style="color:var(--muted)">${cEsc(it.label||'')}</p>
+        <p class="font-display text-lg font-bold mt-1">${cEsc(String(v==null?'':v))}</p></div>`; }).join('')+'</div>';
+  }
+  else if(b.type==='metric'){ const val=evalFormula(b.formula||'',wwVars());
+    inner=`<p class="text-xs uppercase tracking-wide" style="color:var(--muted)">${cEsc(b.label||'Metric')}</p>
+      <p class="font-display text-4xl font-bold mt-1" style="${b.color?('color:'+cEsc(b.color)):'color:var(--gold-bright)'}">${cEsc(custFmt(val,b.currency!==false))}</p>
+      ${b.formula?`<p class="text-xs mt-1" style="color:var(--muted)">ƒ = ${cEsc(b.formula)}</p>`:''}`;
+  }
+  else if(b.type==='table'){ inner=customRenderTable(sec,b); }
+  return `<div class="glass p-5 mb-4 cust-block">${tools}${inner}</div>`;
+}
+function custRowValues(b,row){
+  const vars=Object.assign({},wwVars()); const out=[];
+  for(let j=0;j<b.columns.length;j++){ const col=b.columns[j], letter=String.fromCharCode(65+j); let v;
+    if(col.formula){ v=evalFormula(col.formula,vars); if(typeof v!=='number'||!isFinite(v)) v=(v==='#ERR'?'#ERR':0); }
+    else { v=parseFloat(row[j]); if(!isFinite(v)) v=0; }
+    out[j]=v; const nv=(typeof v==='number'?v:0); vars[letter]=nv; const nm=custVar(col.name); if(nm) vars[nm]=nv; }
+  return out;
+}
+function customRenderTable(sec,b){
+  b.columns=b.columns||[]; b.rows=b.rows||[]; const editable=custCanEdit();
+  const head=b.columns.map((c,i)=>`<th style="padding:8px 10px;">${cEsc(c.name)}${c.formula?' <span style="opacity:.6" title="formula">ƒ</span>':''}${editable&&custCanEdit()?` <span onclick="custColDel('${sec.id}','${b.id}',${i})" style="cursor:pointer;opacity:.5;" title="delete column">✕</span>`:''}</th>`).join('');
+  const bodyRows=b.rows.map((row,ri)=>{ const vals=custRowValues(b,row);
+    return '<tr>'+b.columns.map((c,ci)=>{
+      if(c.formula) return `<td style="padding:6px 10px;color:var(--gold-bright);font-weight:600;">${cEsc(custFmt(vals[ci],c.currency))}</td>`;
+      const v=row[ci]!=null?row[ci]:'';
+      return `<td style="padding:4px 6px;">${editable?`<input class="cust-input" value="${cEsc(String(v))}" onchange="custCellEdit('${sec.id}','${b.id}',${ri},${ci},this.value)">`:cEsc(String(v))}</td>`;
+    }).join('')+(editable?`<td style="padding:4px 6px;"><button class="blk-btn" onclick="custRowDel('${sec.id}','${b.id}',${ri})">✕</button></td>`:'')+'</tr>';
+  }).join('');
+  const controls=editable?`<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+     <button class="btn-ghost" style="font-size:12px;padding:6px 11px;" onclick="custRowAdd('${sec.id}','${b.id}')">＋ Row</button>
+     <button class="btn-ghost" style="font-size:12px;padding:6px 11px;" onclick="custColAdd('${sec.id}','${b.id}')">＋ Column</button>
+     <button class="btn-ghost" style="font-size:12px;padding:6px 11px;" onclick="custTableCSV('${sec.id}','${b.id}')">⬇ CSV</button></div>`:'';
+  return `${b.title?`<h3 class="font-display text-lg font-bold mb-3">${cEsc(b.title)}</h3>`:''}
+    <div class="overflow-x-auto"><table class="w-full text-sm" style="border-collapse:collapse;">
+    <thead><tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;">${head}${editable?'<th></th>':''}</tr></thead>
+    <tbody>${bodyRows}</tbody></table></div>${controls}`;
+}
+function custCellEdit(sid,bid,ri,ci,val){ const b=customFindBlock(sid,bid); if(!b||!custCanEdit())return; b.rows[ri][ci]=val; DB.save(); customRenderActive(); }
+function custRowAdd(sid,bid){ const b=customFindBlock(sid,bid); if(!b||!custCanEdit())return; b.rows.push(new Array(b.columns.length).fill('')); DB.save(); customRenderActive(); }
+function custRowDel(sid,bid,ri){ const b=customFindBlock(sid,bid); if(!b||!custCanEdit())return; b.rows.splice(ri,1); DB.save(); customRenderActive(); }
+function custColAdd(sid,bid){ const b=customFindBlock(sid,bid); if(!b||!custCanEdit())return;
+  const name=prompt('Column name:'); if(!name||!name.trim())return;
+  const f=prompt('Formula for this column? Leave blank for a normal data column.\nUse column letters or names, e.g.  A*B  or  qty*price :',''); 
+  const col={name:name.trim()}; if(f&&f.trim()){ col.formula=f.trim(); col.currency=true; }
+  b.columns.push(col); b.rows.forEach(r=>r.push('')); DB.save(); customRenderActive(); }
+function custColDel(sid,bid,ci){ const b=customFindBlock(sid,bid); if(!b||!custCanEdit())return;
+  if(!confirm('Delete column “'+b.columns[ci].name+'”?'))return; b.columns.splice(ci,1); b.rows.forEach(r=>r.splice(ci,1)); DB.save(); customRenderActive(); }
+function custTableCSV(sid,bid){ const b=customFindBlock(sid,bid); if(!b)return;
+  const head=b.columns.map(c=>'"'+String(c.name).replace(/"/g,'""')+'"').join(',');
+  const rows=b.rows.map(row=>{ const vals=custRowValues(b,row);
+    return b.columns.map((c,ci)=> c.formula?vals[ci]:(row[ci]!=null?'"'+String(row[ci]).replace(/"/g,'""')+'"':'')).join(','); });
+  downloadFile([head,...rows].join('\n'), 'wealthwise_'+(b.title||'table').replace(/\s+/g,'_')+'.csv','text/csv'); showToast('CSV exported 📄'); }
+
+function customMoveBlock(sid,bid,dir){ const s=customFindSection(sid); if(!s||!custCanEdit())return;
+  const i=s.blocks.findIndex(b=>b.id===bid); const j=i+dir; if(j<0||j>=s.blocks.length)return;
+  const t=s.blocks[i]; s.blocks[i]=s.blocks[j]; s.blocks[j]=t; DB.save(); customRenderActive(); }
+function customDeleteBlock(sid,bid){ const s=customFindSection(sid); if(!s||!custCanEdit())return;
+  if(!confirm('Delete this block?'))return; s.blocks=s.blocks.filter(b=>b.id!==bid); DB.save(); customRenderActive(); }
+
+/* ----- block add/edit modal ----- */
+function customAddBlock(type){ if(!custCanEdit())return showToast("You don't have permission",'error');
+  customState.editing={sid:customState.active,bid:null,type}; customBlockForm(type,null); openModal('customBlockModal'); }
+function customEditBlock(sid,bid){ const b=customFindBlock(sid,bid); if(!b)return;
+  customState.editing={sid,bid,type:b.type}; customBlockForm(b.type,b); openModal('customBlockModal'); }
+function customBlockForm(type,b){
+  const T={heading:'Heading',text:'Text / Note',fields:'Key–Value Fields',metric:'Metric (formula)',table:'Table'};
+  document.getElementById('customBlockTitle').textContent=(b?'Edit ':'Add ')+(T[type]||'Block');
+  const body=document.getElementById('customBlockBody'); let h='';
+  if(type==='heading'){
+    h=`<label class="label">Heading text</label><input id="cb_text" class="input" value="${cEsc(b?b.text:'')}" placeholder="e.g. My Subscriptions">
+       <label class="label" style="margin-top:10px;">Accent colour (optional)</label><input id="cb_color" class="input" value="${cEsc(b&&b.color||'')}" placeholder="#d4a574 or leave blank">`;
+  } else if(type==='text'){
+    h=`<label class="label">Text (markdown supported: **bold**, - lists, | tables |)</label>
+       <textarea id="cb_text" class="input" style="min-height:140px;">${cEsc(b?b.text:'')}</textarea>`;
+  } else if(type==='fields'){
+    const val=(b&&b.items?b.items.map(it=>it.label+' = '+it.value).join('\n'):'Label = value\nSavings rate = =savings\nGoal = 500000');
+    h=`<label class="label">One field per line — <code>Label = value</code>. Prefix a value with <code>=</code> for a live formula.</label>
+       <textarea id="cb_fields" class="input" style="min-height:150px;">${cEsc(val)}</textarea>
+       <p class="text-xs mt-2" style="color:var(--muted)">Formula variables: ${WW_VAR_HINT}. Example: <code>Free cash = =income-expense</code></p>`;
+  } else if(type==='metric'){
+    h=`<label class="label">Label</label><input id="cb_label" class="input" value="${cEsc(b?b.label:'')}" placeholder="e.g. Savings Rate">
+       <label class="label" style="margin-top:10px;">Formula</label><input id="cb_formula" class="input" value="${cEsc(b?b.formula:'')}" placeholder="e.g. savings/income*100">
+       <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px;"><input type="checkbox" id="cb_currency" ${(!b||b.currency!==false)?'checked':''}> Format as currency (₹)</label>
+       <p class="text-xs mt-2" style="color:var(--muted)">Variables: ${WW_VAR_HINT}.</p>`;
+  } else if(type==='table'){
+    const cols=(b&&b.columns?b.columns.map(c=>c.formula?(c.name+' = '+c.formula):c.name).join('\n'):'Item\nQty\nPrice\nTotal = qty*price');
+    h=`<label class="label">Table title (optional)</label><input id="cb_title" class="input" value="${cEsc(b&&b.title||'')}" placeholder="e.g. Monthly subscriptions">
+       <label class="label" style="margin-top:10px;">Columns — one per line. For a computed column: <code>Name = formula</code></label>
+       <textarea id="cb_cols" class="input" style="min-height:130px;">${cEsc(cols)}</textarea>
+       <p class="text-xs mt-2" style="color:var(--muted)">In a column formula use other column names or letters (A, B, C…). Example: <code>Total = qty*price</code> or <code>Total = C*D</code>.</p>`;
+  }
+  h+=`<button class="btn-primary w-full mt-4" onclick="customSaveBlock()">${b?'Save changes':'Add block'}</button>`;
+  body.innerHTML=h;
+}
+function customSaveBlock(){
+  const ed=customState.editing; if(!ed)return; const sec=customFindSection(ed.sid); if(!sec)return;
+  const type=ed.type; let block=ed.bid?customFindBlock(ed.sid,ed.bid):{id:DB.uid(),type};
+  const val=id=>{const el=document.getElementById(id);return el?el.value:'';};
+  if(type==='heading'){ block.text=val('cb_text'); block.color=val('cb_color').trim(); }
+  else if(type==='text'){ block.text=val('cb_text'); }
+  else if(type==='fields'){ block.items=val('cb_fields').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const i=l.indexOf('=');
+      if(i<0)return{label:l,value:''}; return {label:l.slice(0,i).trim(), value:l.slice(i+1).trim()}; }); }
+  else if(type==='metric'){ block.label=val('cb_label'); block.formula=val('cb_formula').trim();
+      block.currency=!!(document.getElementById('cb_currency')&&document.getElementById('cb_currency').checked); }
+  else if(type==='table'){ block.title=val('cb_title').trim();
+      const cols=val('cb_cols').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const i=l.indexOf('=');
+        if(i<0)return{name:l}; return {name:l.slice(0,i).trim(), formula:l.slice(i+1).trim(), currency:true}; });
+      block.columns=cols; if(!block.rows) block.rows=[];
+      block.rows=block.rows.map(r=>{const nr=cols.map((_,i)=>r[i]!=null?r[i]:''); return nr;}); }
+  if(!ed.bid) sec.blocks.push(block);
+  DB.save(); closeModal('customBlockModal'); customRenderActive(); showToast(ed.bid?'Block updated ✏️':'Block added ✅');
 }
 
 DB.init();
