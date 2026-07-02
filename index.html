@@ -5552,24 +5552,42 @@ function refreshAll() {
 function cEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 /* ---------- shared finance snapshot ---------- */
+function wwScoped(arr){
+  arr=arr||[];
+  if(typeof AUTH==='undefined'||!AUTH.current) return arr;
+  if(AUTH.current.role==='Admin') return arr;                 // admin sees everyone
+  const me=(typeof _dsKey==='function')?_dsKey(AUTH.current.name):(AUTH.current.name||'').toLowerCase();
+  const owner=(typeof _dsOwnerRaw==='function')?_dsOwnerRaw:(x=>x.createdBy||x.createdByUser||'Unknown');
+  const key=(typeof _dsKey==='function')?_dsKey:(s=>(s||'').trim().toLowerCase());
+  return arr.filter(x=>key(owner(x))===me);
+}
 function wwSnapshot(){
   const d=DB.data||{};
-  const txs=d.transactions||[], inv=d.investments||[], loans=d.loans||[], budgets=d.budgets||[], goals=d.goals||[];
+  const txs=wwScoped(d.transactions), inv=wwScoped(d.investments), loans=wwScoped(d.loans),
+        budgets=wwScoped(d.budgets), goals=wwScoped(d.goals), contribs=wwScoped(d.contributions);
   const sum=(a,f)=>a.reduce((s,x)=>s+(Number(f(x))||0),0);
   const income=sum(txs.filter(t=>t.type==='income'),t=>t.amount);
   const expense=sum(txs.filter(t=>t.type==='expense'),t=>t.amount);
-  const invIn=sum(inv,i=>i.invested), invCur=sum(inv,i=>i.current);
-  const debt=sum(loans,l=>l.principal);
+  const invIn=sum(inv,i=>i.invested), invCur=sum(inv,i=>i.current!=null?i.current:i.invested);
+  const debt=sum(loans,l=>l.principal||l.amount||0);
+  const contrib=sum(contribs,c=>c.amount);
   const byCat={}; txs.filter(t=>t.type==='expense').forEach(t=>{const c=t.category||'Other';byCat[c]=(byCat[c]||0)+(Number(t.amount)||0);});
-  return {income,expense,savings:income-expense,invIn,invCur,invReturns:invCur-invIn,debt,
-          netWorth:(income-expense)+invCur-debt,byCat,txCount:txs.length,
-          goalsN:goals.length,budgetsN:budgets.length};
+  const incByCat={}; txs.filter(t=>t.type==='income').forEach(t=>{const c=t.category||'Other';incByCat[c]=(incByCat[c]||0)+(Number(t.amount)||0);});
+  const now=new Date(); const months=[];
+  for(let i=5;i>=0;i--){ const dt=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const mi=txs.filter(t=>{const td=new Date(t.date); return !isNaN(td)&&td.getFullYear()===dt.getFullYear()&&td.getMonth()===dt.getMonth();});
+    months.push({key:dt.toLocaleDateString('en',{month:'short',year:'2-digit'}),
+      inc:sum(mi.filter(t=>t.type==='income'),t=>t.amount), exp:sum(mi.filter(t=>t.type==='expense'),t=>t.amount)}); }
+  return {income,expense,savings:income-expense,invIn,invCur,invReturns:invCur-invIn,debt,contrib,
+          netWorth:(income-expense)+invCur-debt, byCat, incByCat, months, txs, goals, budgets,
+          txCount:txs.length, invCount:inv.length, goalsN:goals.length, budgetsN:budgets.length};
 }
 function wwVars(){ const s=wwSnapshot(); return {
   income:s.income, expense:s.expense, savings:s.savings, netWorth:s.netWorth,
-  investments:s.invCur, invested:s.invIn, returns:s.invReturns, debt:s.debt,
+  investments:s.invCur, invested:s.invIn, returns:s.invReturns, debt:s.debt, contributions:s.contrib,
   transactions:s.txCount, goals:s.goalsN, budgets:s.budgetsN }; }
-const WW_VAR_HINT='income, expense, savings, netWorth, investments, invested, returns, debt, transactions';
+const WW_VAR_HINT='income, expense, savings, netWorth, investments, invested, returns, debt, contributions, transactions';
+
 
 /* ---------- tiny safe formula evaluator ---------- */
 function evalFormula(expr, vars){
@@ -5642,18 +5660,27 @@ function aiSaveKey(){
 }
 function aiClearKey(){ if(DB.data.settings) delete DB.data.settings.aiKey; DB.save(); const ki=document.getElementById('aiKeyInput'); if(ki) ki.value=''; showToast('Key cleared — staying 100% free','info'); }
 
-function wwContextString(){
-  const d=DB.data||{}; const s=wwSnapshot(); const L=[];
-  L.push(`Currency ₹. Income ${s.income}, Expense ${s.expense}, Net savings ${s.savings}.`);
-  L.push(`Investments invested ${s.invIn}, current ${s.invCur} (returns ${s.invReturns}). Debt/loans ${s.debt}. Est. net worth ${s.netWorth}.`);
-  const cats=Object.entries(s.byCat).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  if(cats.length) L.push('Top expense categories: '+cats.map(c=>c[0]+' ₹'+Math.round(c[1])).join(', ')+'.');
-  const recent=(d.transactions||[]).slice(0,20).map(t=>`${t.date||''} ${t.type||''} ${t.category||''} ₹${t.amount||0} ${t.description||''}`.trim());
-  if(recent.length) L.push('Recent transactions:\n'+recent.join('\n'));
-  const goals=(d.goals||[]).map(g=>`${g.name} ${g.current||0}/${g.target||0} by ${g.date||''}`);
+function wwContextString(compact){
+  const s=wwSnapshot(); const L=[];
+  const who=(typeof AUTH!=='undefined'&&AUTH.current)
+    ? (AUTH.current.name+(AUTH.current.role==='Admin'?' — Admin; figures below cover ALL users':' — figures below are this user only'))
+    : 'User';
+  L.push('User: '+who+'. Currency ₹.');
+  L.push(`Totals — Income ₹${Math.round(s.income)}, Expense ₹${Math.round(s.expense)}, Net savings ₹${Math.round(s.savings)}.`);
+  L.push(`Investments: invested ₹${Math.round(s.invIn)}, current ₹${Math.round(s.invCur)} (returns ₹${Math.round(s.invReturns)}). Debt ₹${Math.round(s.debt)}. Contributions ₹${Math.round(s.contrib)}. Est. net worth ₹${Math.round(s.netWorth)}.`);
+  const cats=Object.entries(s.byCat).sort((a,b)=>b[1]-a[1]).slice(0,12);
+  if(cats.length) L.push('Expense by category: '+cats.map(c=>c[0]+' ₹'+Math.round(c[1])).join(', ')+'.');
+  const inc=Object.entries(s.incByCat).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(inc.length) L.push('Income by source: '+inc.map(c=>c[0]+' ₹'+Math.round(c[1])).join(', ')+'.');
+  if(s.months.length) L.push('Last 6 months income/expense: '+s.months.map(m=>`${m.key} ${Math.round(m.inc)}/${Math.round(m.exp)}`).join(', ')+'.');
+  const goals=s.goals.map(g=>`${g.name} ₹${Math.round(g.current||0)}/₹${Math.round(g.target||0)}${g.date?(' by '+g.date):''}`);
   if(goals.length) L.push('Goals: '+goals.join('; ')+'.');
-  const bud=(d.budgets||[]).map(b=>`${b.category} limit ₹${b.limit||0}`);
+  const bud=s.budgets.map(b=>`${b.category} limit ₹${Math.round(b.limit||0)}`);
   if(bud.length) L.push('Budgets: '+bud.join('; ')+'.');
+  const n=compact?12:35;
+  const recent=[...s.txs].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,n)
+    .map(t=>`${t.date||''} ${t.type||''} ${t.category||''} ₹${Math.round(Number(t.amount)||0)}${t.description?(' '+t.description):''}`.trim());
+  L.push(recent.length?('Recent transactions'+(compact?(' (latest '+n+')'):'')+':\n'+recent.join('\n')):'No transactions recorded yet for this user.');
   return L.join('\n');
 }
 function aiErrText(e){ try{ if(!e)return 'unknown'; if(typeof e==='string')return e;
@@ -5664,12 +5691,14 @@ async function pollText(r){ const raw=await r.text(); try{ const j=JSON.parse(ra
   if(typeof j==='string') return j; return raw; }catch(_){ return raw; } }
 
 async function aiCall(messages){
-  const ctx="You are the WealthWise AI assistant, a warm, practical personal-finance helper inside the user's WealthWise app. Context is Indian (currency ₹). Use ONLY the user's data below to answer, generate reports, tables and insights. If data is missing, say so briefly. Use clear markdown — short headings, bullet lists and tables. Never invent numbers.\n\nUSER'S CURRENT WEALTHWISE DATA (private):\n"+wwContextString();
+  const INSTR="You are the WealthWise AI assistant, a warm, practical personal-finance helper inside the user's WealthWise app. Context is Indian (currency ₹). Answer using the user's WealthWise data provided below — it is real and current. Do NOT say you lack access to their data; the data is right here. If a specific detail isn't in the data, say what you'd need. Use clear markdown — short headings, bullet lists and tables. Never invent numbers.\n\n=== USER'S WEALTHWISE DATA (private, current) ===\n";
+  const ctx=INSTR+wwContextString(false);
+  const ctxShort=INSTR+wwContextString(true);
   const key=(DB.data.settings&&DB.data.settings.aiKey)||'';
   const sysMsgs=[{role:'system',content:ctx}].concat(messages.map(m=>({role:m.role,content:m.content})));
   const lastUser=[...messages].reverse().find(m=>m.role==='user');
   const single=ctx+'\n\n--- Question ---\n'+((lastUser&&lastUser.content)||'');
-  const singleShort=(ctx.slice(0,1100))+'\n\n--- Question ---\n'+((lastUser&&lastUser.content)||'').slice(0,600);
+  const singleShort=ctxShort+'\n\n--- Question ---\n'+((lastUser&&lastUser.content)||'');
 
   // If the user chose to add their OWN Anthropic key, use it (best quality, works anywhere)
   if(key){
