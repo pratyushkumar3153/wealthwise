@@ -1495,13 +1495,17 @@ create table if not exists messages (
   &quot;fileData&quot; text, &quot;fileName&quot; text, &quot;fileType&quot; text,
   &quot;createdBy&quot; text, &quot;createdByUser&quot; text, created_at timestamptz default now()
 );
+create table if not exists users (
+  id text primary key, name text, username text, pin text, pw text, role text,
+  &quot;createdAt&quot; text, created_at timestamptz default now()
+);
 
 -- Open the tables to your public anon key (shared-book model).
 -- WARNING: anyone with your project URL + anon key can then read/write this data.
 do $$
 declare t text;
 begin
-  foreach t in array array[&#x27;transactions&#x27;,&#x27;investments&#x27;,&#x27;loans&#x27;,&#x27;budgets&#x27;,&#x27;goals&#x27;,&#x27;documents&#x27;,&#x27;assets&#x27;,&#x27;liabilities&#x27;,&#x27;contributions&#x27;,&#x27;family&#x27;,&#x27;lending&#x27;,&#x27;messages&#x27;] loop
+  foreach t in array array[&#x27;transactions&#x27;,&#x27;investments&#x27;,&#x27;loans&#x27;,&#x27;budgets&#x27;,&#x27;goals&#x27;,&#x27;documents&#x27;,&#x27;assets&#x27;,&#x27;liabilities&#x27;,&#x27;contributions&#x27;,&#x27;family&#x27;,&#x27;lending&#x27;,&#x27;messages&#x27;,&#x27;users&#x27;] loop
     execute format(&#x27;alter table %I enable row level security;&#x27;, t);
     execute format(&#x27;drop policy if exists ww_all on %I;&#x27;, t);
     execute format(&#x27;create policy ww_all on %I for all to anon, authenticated using (true) with check (true);&#x27;, t);
@@ -5564,13 +5568,20 @@ function wwScoped(arr){
 function wwSnapshot(){
   const d=DB.data||{};
   const txs=wwScoped(d.transactions), inv=wwScoped(d.investments), loans=wwScoped(d.loans),
-        budgets=wwScoped(d.budgets), goals=wwScoped(d.goals), contribs=wwScoped(d.contributions);
+        budgets=wwScoped(d.budgets), goals=wwScoped(d.goals), contribs=wwScoped(d.contributions),
+        lending=wwScoped(d.lending), assets=wwScoped(d.assets), liabilities=wwScoped(d.liabilities);
   const sum=(a,f)=>a.reduce((s,x)=>s+(Number(f(x))||0),0);
   const income=sum(txs.filter(t=>t.type==='income'),t=>t.amount);
   const expense=sum(txs.filter(t=>t.type==='expense'),t=>t.amount);
   const invIn=sum(inv,i=>i.invested), invCur=sum(inv,i=>i.current!=null?i.current:i.invested);
   const debt=sum(loans,l=>l.principal||l.amount||0);
   const contrib=sum(contribs,c=>c.amount);
+  const lent=sum(lending.filter(x=>x.type==='lent'),x=>x.amount);
+  const lentPending=sum(lending.filter(x=>x.type==='lent'&&x.status!=='settled'),x=>x.amount);
+  const borrowed=sum(lending.filter(x=>x.type==='borrowed'),x=>x.amount);
+  const borrowedPending=sum(lending.filter(x=>x.type==='borrowed'&&x.status!=='settled'),x=>x.amount);
+  const assetVal=sum(assets,a=>a.value||a.amount||0);
+  const liabVal=sum(liabilities,l=>l.value||l.amount||l.balance||0);
   const byCat={}; txs.filter(t=>t.type==='expense').forEach(t=>{const c=t.category||'Other';byCat[c]=(byCat[c]||0)+(Number(t.amount)||0);});
   const incByCat={}; txs.filter(t=>t.type==='income').forEach(t=>{const c=t.category||'Other';incByCat[c]=(incByCat[c]||0)+(Number(t.amount)||0);});
   const now=new Date(); const months=[];
@@ -5578,15 +5589,19 @@ function wwSnapshot(){
     const mi=txs.filter(t=>{const td=new Date(t.date); return !isNaN(td)&&td.getFullYear()===dt.getFullYear()&&td.getMonth()===dt.getMonth();});
     months.push({key:dt.toLocaleDateString('en',{month:'short',year:'2-digit'}),
       inc:sum(mi.filter(t=>t.type==='income'),t=>t.amount), exp:sum(mi.filter(t=>t.type==='expense'),t=>t.amount)}); }
+  const netWorth=(income-expense)+invCur+assetVal+lentPending-debt-liabVal-borrowedPending;
   return {income,expense,savings:income-expense,invIn,invCur,invReturns:invCur-invIn,debt,contrib,
-          netWorth:(income-expense)+invCur-debt, byCat, incByCat, months, txs, goals, budgets,
+          lent,lentPending,borrowed,borrowedPending,assetVal,liabVal,
+          netWorth, byCat, incByCat, months, txs, goals, budgets, lending, assets, liabilities,
           txCount:txs.length, invCount:inv.length, goalsN:goals.length, budgetsN:budgets.length};
 }
 function wwVars(){ const s=wwSnapshot(); return {
   income:s.income, expense:s.expense, savings:s.savings, netWorth:s.netWorth,
   investments:s.invCur, invested:s.invIn, returns:s.invReturns, debt:s.debt, contributions:s.contrib,
-  transactions:s.txCount, goals:s.goalsN, budgets:s.budgetsN }; }
-const WW_VAR_HINT='income, expense, savings, netWorth, investments, invested, returns, debt, contributions, transactions';
+  lent:s.lent, lentPending:s.lentPending, borrowed:s.borrowed, borrowedPending:s.borrowedPending,
+  assets:s.assetVal, liabilities:s.liabVal, transactions:s.txCount, goals:s.goalsN, budgets:s.budgetsN }; }
+const WW_VAR_HINT='income, expense, savings, netWorth, investments, invested, returns, debt, lent, borrowed, assets, liabilities, contributions, transactions';
+
 
 
 /* ---------- tiny safe formula evaluator ---------- */
@@ -5667,7 +5682,18 @@ function wwContextString(compact){
     : 'User';
   L.push('User: '+who+'. Currency ₹.');
   L.push(`Totals — Income ₹${Math.round(s.income)}, Expense ₹${Math.round(s.expense)}, Net savings ₹${Math.round(s.savings)}.`);
-  L.push(`Investments: invested ₹${Math.round(s.invIn)}, current ₹${Math.round(s.invCur)} (returns ₹${Math.round(s.invReturns)}). Debt ₹${Math.round(s.debt)}. Contributions ₹${Math.round(s.contrib)}. Est. net worth ₹${Math.round(s.netWorth)}.`);
+  L.push(`Investments: invested ₹${Math.round(s.invIn)}, current ₹${Math.round(s.invCur)} (returns ₹${Math.round(s.invReturns)}). EMI/loan debt ₹${Math.round(s.debt)}. Contributions ₹${Math.round(s.contrib)}. Est. net worth ₹${Math.round(s.netWorth)}.`);
+  // Lent & Borrowed
+  L.push(`Lent & Borrowed — Lent out / to receive: ₹${Math.round(s.lent)} total (₹${Math.round(s.lentPending)} still pending). Borrowed / to pay: ₹${Math.round(s.borrowed)} total (₹${Math.round(s.borrowedPending)} still pending).`);
+  if(s.lending && s.lending.length){
+    const rows=s.lending.slice(0,compact?15:60).map(x=>{
+      const dir=x.type==='lent'?'LENT to (will receive)':'BORROWED from (must pay)';
+      return `${x.person||'?'}: ${dir} ₹${Math.round(Number(x.amount)||0)}${x.dueDate?(' due '+x.dueDate):''} [${x.status||'pending'}]${x.note?(' — '+x.note):''}`;
+    });
+    L.push('Lent/Borrowed entries:\n'+rows.join('\n'));
+  }
+  if(s.assets && s.assets.length) L.push('Assets: '+s.assets.map(a=>`${a.name||a.type||'asset'} ₹${Math.round(a.value||a.amount||0)}`).join(', ')+`. (total ₹${Math.round(s.assetVal)})`);
+  if(s.liabilities && s.liabilities.length) L.push('Liabilities: '+s.liabilities.map(l=>`${l.name||l.type||'liability'} ₹${Math.round(l.value||l.amount||l.balance||0)}`).join(', ')+`. (total ₹${Math.round(s.liabVal)})`);
   const cats=Object.entries(s.byCat).sort((a,b)=>b[1]-a[1]).slice(0,12);
   if(cats.length) L.push('Expense by category: '+cats.map(c=>c[0]+' ₹'+Math.round(c[1])).join(', ')+'.');
   const inc=Object.entries(s.incByCat).sort((a,b)=>b[1]-a[1]).slice(0,8);
@@ -5918,9 +5944,25 @@ function customSaveBlock(){
 }
 
 DB.init();
-AUTH.init();
 loadTheme();
-if (AUTH.current) { enterApp(); } else { showAuthScreen(); }
+(async function bootWealthWise(){
+  // Multi-device: pull shared accounts (and data) from the cloud BEFORE the login
+  // screen, so a user created on one device can sign in on any other device.
+  if (typeof Backend !== 'undefined' && Backend.active()) {
+    try {
+      showAuthScreen();
+      const el = document.getElementById('authError');
+      if (el) { el.style.color = 'var(--muted)'; el.textContent = 'Loading your accounts from the cloud…'; }
+      await Backend.loadAll();
+      if (el) el.textContent = '';
+    } catch (e) {
+      const el = document.getElementById('authError');
+      if (el) { el.style.color = 'var(--muted)'; el.textContent = 'Offline — using accounts saved on this device.'; }
+    }
+  }
+  AUTH.init();
+  if (AUTH.current) { enterApp(); } else { showAuthScreen(); }
+})();
 
 document.addEventListener('click', (e) => {
   const sr = document.getElementById('searchResults');
